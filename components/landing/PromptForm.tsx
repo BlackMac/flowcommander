@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -26,8 +26,16 @@ export function PromptForm({ authenticated = false, initialPrompt = "", onCreati
   const [isLoading, setIsLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const router = useRouter();
+  const isCreatingRef = useRef(false);
 
   const createProject = useCallback(async (promptText: string) => {
+    // Prevent duplicate project creation
+    if (isCreatingRef.current) {
+      console.log("[PromptForm] Project creation already in progress, skipping");
+      return;
+    }
+
+    isCreatingRef.current = true;
     setIsLoading(true);
     onCreating?.();
 
@@ -52,15 +60,18 @@ export function PromptForm({ authenticated = false, initialPrompt = "", onCreati
     } catch (error) {
       console.error("Failed to create project:", error);
       setIsLoading(false);
+      isCreatingRef.current = false; // Reset on error so user can retry
     }
   }, [router, onCreating]);
 
   // Auto-submit if we have an initial prompt and are authenticated
   useEffect(() => {
-    if (authenticated && initialPrompt) {
+    if (authenticated && initialPrompt && !isCreatingRef.current) {
       createProject(initialPrompt);
     }
-  }, [authenticated, initialPrompt, createProject]);
+    // Only depend on authenticated and initialPrompt, not createProject
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, initialPrompt]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +106,20 @@ export function PromptForm({ authenticated = false, initialPrompt = "", onCreati
     setPrompt(text);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Submit on Enter (without Shift), allow Shift+Enter for new lines
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (prompt.trim() && !isLoading) {
+        // Manually trigger form submission
+        const form = e.currentTarget.form;
+        if (form) {
+          form.requestSubmit();
+        }
+      }
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
       {/* Textarea with glow effect */}
@@ -106,12 +131,13 @@ export function PromptForm({ authenticated = false, initialPrompt = "", onCreati
             onChange={(e) => setPrompt(e.target.value)}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
+            onKeyDown={handleKeyDown}
             placeholder="Describe the voice agent you want to build..."
             className="textarea textarea-bordered w-full h-40 text-lg resize-none bg-base-100 rounded-xl focus:outline-none focus:border-primary/50 transition-all"
             disabled={isLoading}
           />
           <div className="absolute bottom-3 right-4 flex items-center gap-3">
-            <kbd className="kbd kbd-sm opacity-50">Enter to submit</kbd>
+            <kbd className="kbd kbd-sm opacity-50">⇧↵ new line</kbd>
             <span className="text-sm text-base-content/40 tabular-nums">
               {prompt.length}
             </span>
@@ -166,7 +192,7 @@ export function PromptForm({ authenticated = false, initialPrompt = "", onCreati
             </svg>
             <span className="text-lg">Build Agent</span>
             <kbd className="kbd kbd-sm bg-primary-content/20 border-primary-content/30 text-primary-content">
-              ↵
+              Enter
             </kbd>
           </>
         )}

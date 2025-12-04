@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="50" fill="url(#aiGrad)"/>
+  <path d="M50 25 L65 45 L60 45 L60 65 L40 65 L40 45 L35 45 Z" fill="white" opacity="0.9"/>
+  <circle cx="45" cy="52" r="4" fill="#6366f1"/>
+  <circle cx="55" cy="52" r="4" fill="#6366f1"/>
+  <path d="M42 62 Q50 68 58 62" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>

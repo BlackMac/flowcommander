@@ -15,6 +15,7 @@ interface BuilderLayoutProps {
   projectName: string;
   saveStatus?: SaveStatus;
   onSave?: () => void;
+  children?: ReactNode;
 }
 
 export function BuilderLayout({
@@ -25,6 +26,7 @@ export function BuilderLayout({
   projectName,
   saveStatus = "saved",
   onSave,
+  children,
 }: BuilderLayoutProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeView, setActiveView] = useState<ActiveView>("code");
@@ -223,6 +225,9 @@ export function BuilderLayout({
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
       />
+
+      {/* Additional children (modals, overlays, etc.) */}
+      {children}
     </div>
   );
 }

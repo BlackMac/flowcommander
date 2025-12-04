@@ -25,3 +25,19 @@ body {
 .animate-gradient {
   animation: gradient 3s ease infinite;
 }
+
+/* Fade in animation for cycling messages */
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out;
+}

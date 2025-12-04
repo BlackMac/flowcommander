@@ -9,6 +9,7 @@ import { FlowDiagramPane } from "@/components/builder/FlowDiagramPane";
 import { ChatArea } from "@/components/builder/ChatArea";
 import { SandboxControls } from "@/components/builder/SandboxControls";
 import { LogsPanel } from "@/components/builder/LogsPanel";
+import { GeneratingModal } from "@/components/builder/GeneratingModal";
 import type { Project, ChatMessage, WebhookEvent, PhoneNumber } from "@/types/database";
 import { createClient } from "@/lib/supabase/client";
 
@@ -28,6 +29,7 @@ export default function BuilderPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isInitialGeneration, setIsInitialGeneration] = useState(false);
   const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus>("stopped");
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -196,6 +198,7 @@ export default function BuilderPage() {
           lastSavedCodeRef.current = project.current_code;
         } else {
           // Generate initial code
+          setIsInitialGeneration(true);
           generateCode(project.initial_prompt);
         }
 
@@ -402,6 +405,7 @@ export default function BuilderPage() {
       console.error("Failed to generate code:", error);
     } finally {
       setIsGenerating(false);
+      setIsInitialGeneration(false);
     }
   };
 
@@ -715,6 +719,9 @@ export default function BuilderPage() {
           onDebugCrashError={handleDebugCrashError}
         />
       }
-    />
+    >
+      {/* Show generating modal only during initial code generation (not chat refinements) */}
+      <GeneratingModal isOpen={isInitialGeneration} />
+    </BuilderLayout>
   );
 }

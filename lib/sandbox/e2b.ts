@@ -195,10 +195,13 @@ export async function deploySandbox(
     capturedLogs.set(projectId, []);
 
     // Use E2B's background: true option for proper background execution
+    // IMPORTANT: timeout: 0 means no limit on the command connection time
+    // Without this, E2B disconnects after 60 seconds (default) which kills the server
     const command = await sandbox.commands.run(
       "cd /home/user && npx tsx run.ts 2>&1 | tee /tmp/server-output.log",
       {
         background: true,
+        timeoutMs: 0, // No timeout - keep connection alive indefinitely
         onStdout: (data) => {
           console.log(`[E2B stdout] ${data}`);
           // Capture log line

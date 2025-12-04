@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
@@ -6,6 +5,7 @@ const SIPGATE_TOKEN_URL =
   "https://login.sipgate.com/auth/realms/third-party/protocol/openid-connect/token";
 const SIPGATE_USERINFO_URL =
   "https://login.sipgate.com/auth/realms/third-party/protocol/openid-connect/userinfo";
+const SIPGATE_API_URL = "https://api.sipgate.com/v2";
 
 interface SipgateUserInfo {
   sub: string;
@@ -103,26 +103,6 @@ export async function GET(request: Request) {
 
     const userInfo: SipgateUserInfo = await userInfoResponse.json();
 
-    // Sign in or create user in Supabase using the admin API
-    // Since sipgate is not a built-in provider, we use signInWithPassword
-    // after creating/verifying the user exists
-    const supabase = await createClient();
-
-    // Try to sign in with a magic link style approach -
-    // we'll use Supabase's signInWithOtp and auto-confirm via admin
-    // Or alternatively, we can use the service role to create a session
-
-    // For simplicity, we'll use a workaround: store sipgate user data
-    // and create a session using Supabase's anonymous auth combined with metadata
-    // Better approach: Use Supabase's signInAnonymously then link, or use service role
-
-    // Actually, the cleanest approach is to use Supabase Admin API to:
-    // 1. Upsert user in auth.users
-    // 2. Create a session
-
-    // For now, let's use a simpler approach with custom JWT or
-    // leverage Supabase's ability to create users programmatically
-
     // We'll need the service role key for this
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -131,11 +111,95 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${appUrl}/login?error=config_error`);
     }
 
+    // Fetch SIP credentials now while we have a valid access token
+    // These credentials are static and don't change, so we store them in user_metadata
+    let sipCredentials: {
+      username: string;
+      password: string;
+      sipServer: string;
+      websocketUrl: string;
+      deviceId: string;
+      deviceAlias: string;
+    } | null = null;
+
+    try {
+      // Get devices with credentials
+      // First, get the proper userId from the sipgate API (not OIDC userinfo)
+      console.log("[Sipgate OAuth] Fetching API userinfo to get userId");
+
+      const apiUserInfoResponse = await fetch(`${SIPGATE_API_URL}/authorization/userinfo`, {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      });
+
+      if (!apiUserInfoResponse.ok) {
+        console.error("[Sipgate OAuth] API userinfo failed:", await apiUserInfoResponse.text());
+        throw new Error("Failed to get API userinfo");
+      }
+
+      const apiUserInfo = await apiUserInfoResponse.json();
+      const userId = apiUserInfo.sub;
+      console.log("[Sipgate OAuth] Got userId from API:", userId);
+
+      // Now fetch devices using the API userId
+      const devicesResponse = await fetch(`${SIPGATE_API_URL}/${userId}/devices`, {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      });
+
+      console.log("[Sipgate OAuth] Devices response status:", devicesResponse.status);
+
+      if (devicesResponse.ok) {
+        const devicesData = await devicesResponse.json();
+        console.log("[Sipgate OAuth] Devices data:", JSON.stringify(devicesData, null, 2));
+
+        // Find a REGISTER device with credentials
+        const registerDevice = devicesData.items?.find(
+          (device: { type: string; credentials?: object }) =>
+            device.type === "REGISTER" && device.credentials
+        );
+
+        console.log("[Sipgate OAuth] Register device found:", registerDevice?.id);
+
+        if (registerDevice?.credentials) {
+          sipCredentials = {
+            username: registerDevice.credentials.username,
+            password: registerDevice.credentials.password,
+            sipServer: registerDevice.credentials.sipServer || "sipgate.de",
+            websocketUrl: registerDevice.credentials.sipServerWebsocketUrl || "wss://tls01.sipgate.de:443",
+            deviceId: registerDevice.id,
+            deviceAlias: registerDevice.alias,
+          };
+          console.log("[Sipgate OAuth] SIP credentials extracted:", sipCredentials.username);
+        } else {
+          console.log("[Sipgate OAuth] No REGISTER device with credentials found");
+        }
+      } else {
+        const errorText = await devicesResponse.text();
+        console.error("[Sipgate OAuth] Devices API error:", errorText);
+      }
+    } catch (err) {
+      console.error("[Sipgate OAuth] Failed to fetch SIP credentials:", err);
+      // Continue without SIP credentials - user can still use the app
+    }
+
+    console.log("[Sipgate OAuth] Final sipCredentials:", sipCredentials ? "present" : "null");
+
     // Use admin API to create/update user and generate link
     const email = userInfo.email || `${userInfo.sub}@sipgate.user`;
 
-    // Try to create user - if they exist, Supabase will return an error
-    // Then we can just proceed to generate the magic link
+    // Prepare user metadata including SIP credentials (fetched at login, never expires)
+    const userMetadata = {
+      full_name: userInfo.name || userInfo.preferred_username,
+      provider: "sipgate",
+      sipgate_id: userInfo.sub,
+      // Store SIP credentials directly - these don't expire
+      sip_credentials: sipCredentials,
+    };
+
+    // Try to create user - if they exist, we'll update their metadata
     const createUserResponse = await fetch(
       `${supabaseUrl}/auth/v1/admin/users`,
       {
@@ -148,25 +212,53 @@ export async function GET(request: Request) {
         body: JSON.stringify({
           email,
           email_confirm: true,
-          user_metadata: {
-            full_name: userInfo.name || userInfo.preferred_username,
-            provider: "sipgate",
-            sipgate_id: userInfo.sub,
-          },
+          user_metadata: userMetadata,
         }),
       }
     );
 
     if (!createUserResponse.ok) {
       const errorData = await createUserResponse.json();
-      // If user already exists, that's fine - we'll just generate a magic link
-      if (!errorData.msg?.includes("already been registered") &&
-          !errorData.message?.includes("already been registered") &&
-          !errorData.error?.includes("already")) {
+      // If user already exists, update their metadata with fresh tokens
+      if (errorData.msg?.includes("already been registered") ||
+          errorData.message?.includes("already been registered") ||
+          errorData.error?.includes("already")) {
+        // Get existing user by email and update their metadata
+        const getUsersResponse = await fetch(
+          `${supabaseUrl}/auth/v1/admin/users?email=${encodeURIComponent(email)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              apikey: serviceRoleKey,
+            },
+          }
+        );
+
+        if (getUsersResponse.ok) {
+          const usersData = await getUsersResponse.json();
+          const existingUser = usersData.users?.[0];
+          if (existingUser) {
+            // Update user with fresh sipgate tokens
+            await fetch(
+              `${supabaseUrl}/auth/v1/admin/users/${existingUser.id}`,
+              {
+                method: "PUT",
+                headers: {
+                  Authorization: `Bearer ${serviceRoleKey}`,
+                  apikey: serviceRoleKey,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  user_metadata: userMetadata,
+                }),
+              }
+            );
+          }
+        }
+      } else {
         console.error("Failed to create user:", JSON.stringify(errorData));
         return NextResponse.redirect(`${appUrl}/login?error=user_creation_failed`);
       }
-      // User exists, continue to magic link
     }
 
     // Generate a magic link for the user (this creates a session)

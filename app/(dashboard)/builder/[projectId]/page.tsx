@@ -318,7 +318,13 @@ export default function BuilderPage() {
               // Only add if event is newer than clear timestamp
               const clearedAt = eventsClearedAt.current;
               if (!clearedAt || new Date(newEvent.created_at) > clearedAt) {
-                setEvents((prev) => [newEvent, ...prev]);
+                setEvents((prev) => {
+                  // Avoid duplicates (can happen if realtime and polling both pick up same event)
+                  if (prev.some((e) => e.id === newEvent.id)) {
+                    return prev;
+                  }
+                  return [newEvent, ...prev];
+                });
               }
             }
           }

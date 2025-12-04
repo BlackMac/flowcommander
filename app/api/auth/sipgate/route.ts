@@ -53,7 +53,8 @@ export async function GET(request: Request) {
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("redirect_uri", callbackUrl);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", "openid profile email");
+  // Request scopes for user info and device access (for SIP credentials)
+  authUrl.searchParams.set("scope", "openid profile email devices:read");
   authUrl.searchParams.set("state", state);
 
   return NextResponse.redirect(authUrl.toString());

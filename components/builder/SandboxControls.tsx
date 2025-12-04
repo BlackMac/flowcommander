@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SipPhone } from "./SipPhone";
 
 type SandboxStatus = "stopped" | "starting" | "running" | "error";
 
@@ -155,7 +156,7 @@ export function SandboxControls({
 
       {/* Phone Number - shown when sandbox is running */}
       {phoneNumber && sandboxStatus === "running" && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           <label className="text-xs font-medium text-base-content/70">
             Your Phone Number
           </label>
@@ -204,6 +205,8 @@ export function SandboxControls({
               )}
             </button>
           </div>
+          {/* Browser-based calling for sipgate users */}
+          <SipPhone phoneNumber={phoneNumber} />
           <p className="text-xs text-base-content/50">
             Call this number to test your voice agent
           </p>

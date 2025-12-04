@@ -50,6 +50,8 @@ export default function BuilderPage() {
 
   // Track last saved code to detect changes
   const lastSavedCodeRef = useRef<string>("");
+  // Track last deployed code to show indicator when changes aren't deployed
+  const lastDeployedCodeRef = useRef<string>("");
 
   // Clear events handler that also sets the cleared timestamp
   const handleClearEvents = useCallback(() => {
@@ -196,6 +198,10 @@ export default function BuilderPage() {
         if (project.current_code) {
           setCode(project.current_code);
           lastSavedCodeRef.current = project.current_code;
+          // If sandbox is running, assume current code is deployed
+          if (project.sandbox_id && project.webhook_url) {
+            lastDeployedCodeRef.current = project.current_code;
+          }
         } else {
           // Generate initial code
           setIsInitialGeneration(true);
@@ -583,6 +589,8 @@ export default function BuilderPage() {
           if (result.logs) {
             console.log("Initial deploy logs:", result.logs);
           }
+          // Track deployed code on successful deploy
+          lastDeployedCodeRef.current = code;
         }
       } finally {
         setIsDeploying(false);
@@ -603,6 +611,8 @@ export default function BuilderPage() {
 
       setSandboxStatus("stopped");
       setWebhookUrl(null);
+      // Reset deployed code tracker when stopping
+      lastDeployedCodeRef.current = "";
 
       // Update project
       await fetch(`/api/projects/${projectId}`, {
@@ -637,6 +647,9 @@ export default function BuilderPage() {
       if (result.logs) {
         console.log("Deploy logs:", result.logs);
       }
+
+      // Track deployed code
+      lastDeployedCodeRef.current = code;
     } catch (error) {
       console.error("Failed to deploy code:", error);
     } finally {
@@ -685,6 +698,7 @@ export default function BuilderPage() {
               onDeploy={handleDeployCode}
               isDeploying={isDeploying}
               showWebhookUrl={showWebhookUrl}
+              hasUndeployedChanges={code !== lastDeployedCodeRef.current}
             />
           }
         />

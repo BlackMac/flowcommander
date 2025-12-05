@@ -52,8 +52,16 @@ The runtime automatically wraps your code with:
    \`\`\`
 
 2. **Implement all required event handlers:**
-   - onSessionStart: Greet the user
+   - onSessionStart: Greet the user and initialize session state
+     * **CRITICAL:** After sending the welcome message, add it to the session history as an assistant message
+     * This ensures the LLM has full conversation context in subsequent turns
+     * Example pattern:
+       - Create welcome message text
+       - Initialize session with history containing the welcome message as { role: "assistant", content: welcomeMessage }
+       - Return speak action with the welcome message
    - onUserSpeak: Handle user input with callLLM()
+     * Add user message to history before calling LLM
+     * Add LLM response to history after receiving it
    - onUserBargeIn: Handle interruptions gracefully
    - onSessionEnd: Clean up session state
 
@@ -343,6 +351,13 @@ Available voices:
 ## IMPORTANT: LLM Prompts Must Request Short Answers
 Voice agents need concise responses. Always include in system prompts:
 "Keep responses very brief, 1-2 sentences maximum. This is a phone conversation."
+
+## IMPORTANT: Welcome Message Must Be Stored in Context
+**CRITICAL:** After sending the welcome message in onSessionStart, you MUST add it to the session history:
+- Create the welcome message text
+- Initialize session with history array containing: { role: "assistant", content: welcomeMessage }
+- Return the speak action with the welcome message
+This ensures the LLM has full conversation context (including how it greeted the user) in all subsequent turns
 
 ## IMPORTANT: Proper Call Termination
 When ending a call, wait for the goodbye message to finish speaking before hanging up:

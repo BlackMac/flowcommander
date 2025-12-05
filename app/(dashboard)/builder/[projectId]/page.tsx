@@ -6,7 +6,8 @@ import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { Sidebar } from "@/components/builder/Sidebar";
 import { EditorPane } from "@/components/builder/EditorPane";
 import { FlowDiagramPane } from "@/components/builder/FlowDiagramPane";
-import { TestPane } from "@/components/builder/TestPane";
+import { CallPane } from "@/components/builder/CallPane";
+import { ChatPane } from "@/components/builder/ChatPane";
 import { ChatArea } from "@/components/builder/ChatArea";
 import { SandboxControls } from "@/components/builder/SandboxControls";
 import { LogsPanel } from "@/components/builder/LogsPanel";
@@ -776,13 +777,21 @@ export default function BuilderPage() {
           }}
         />
       }
-      testPane={
-        <TestPane
+      callPane={
+        <CallPane
           phoneNumber={phoneNumber?.display_number || null}
           webhookUrl={webhookUrl}
           projectName={project?.name || "Untitled"}
           sandboxStatus={sandboxStatus}
           disabled={isDeploying}
+        />
+      }
+      chatPane={
+        <ChatPane
+          phoneNumber={phoneNumber?.display_number || null}
+          webhookUrl={webhookUrl}
+          projectName={project?.name || "Untitled"}
+          sandboxStatus={sandboxStatus}
         />
       }
       logsPanel={

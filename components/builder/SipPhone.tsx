@@ -22,6 +22,7 @@ interface SipPhoneProps {
 export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChange, onAudioStreamsChange, disabled = false }: SipPhoneProps) {
   const [callState, setCallState] = useState<CallState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [hangupReason, setHangupReason] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [credentials, setCredentials] = useState<SipCredentials | null>(null);
   const [isSipgateUser, setIsSipgateUser] = useState<boolean | null>(null);
@@ -274,10 +275,26 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
           }
         }
       },
-      onCallHangup: () => {
+      onCallHangup: (cause?: string) => {
         onAudioStreamsChange?.(null, null);
+
+        // Set hangup reason if available
+        if (cause) {
+          // Format the cause to be more user-friendly
+          const formattedCause = cause
+            .replace(/_/g, ' ')
+            .toLowerCase()
+            .replace(/\b\w/g, (l) => l.toUpperCase());
+          setHangupReason(formattedCause);
+        } else {
+          setHangupReason('Call ended');
+        }
+
         setCallState("ended");
-        setTimeout(() => setCallState("idle"), 2000);
+        setTimeout(() => {
+          setCallState("idle");
+          setHangupReason(null);
+        }, 3000);
       },
     };
 
@@ -296,6 +313,7 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
 
     setIsLoading(true);
     setError(null);
+    setHangupReason(null);
 
     // Stop warmup stream before making the call (call will create its own stream)
     if (warmupStreamRef.current) {
@@ -365,8 +383,12 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
       if (userAgentRef.current) {
         await userAgentRef.current.hangup();
       }
+      setHangupReason('Hung up by user');
       setCallState("ended");
-      setTimeout(() => setCallState("idle"), 2000);
+      setTimeout(() => {
+        setCallState("idle");
+        setHangupReason(null);
+      }, 3000);
     } catch (err) {
       console.error("[SipPhone] Hangup failed:", err);
     }
@@ -606,6 +628,11 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
       {/* Error message */}
       {error && (
         <p className="text-xs text-error">{error}</p>
+      )}
+
+      {/* Hangup reason */}
+      {callState === "ended" && hangupReason && (
+        <p className="text-xs text-base-content/60">{hangupReason}</p>
       )}
 
       {/* Call state indicator */}

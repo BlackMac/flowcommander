@@ -170,12 +170,35 @@ export function WaveformVisualizer({
       const SILENCE_THRESHOLD = 3.0; // RMS energy threshold (adjust as needed)
       const MIN_SILENCE_DURATION_MS = 500; // Minimum duration to count as continuous silence
       const MIN_SILENCE_SAMPLES = Math.ceil(MIN_SILENCE_DURATION_MS / SAMPLE_INTERVAL_MS); // ~10 samples at 50ms
+      const LOOKBACK_SAMPLES = 5; // How many samples to look back/forward to determine speaker
+
+      // Helper function to determine who was speaking in a range
+      const getActiveSpeaker = (startIdx: number, endIdx: number): 'local' | 'remote' | 'both' | 'none' => {
+        let localActive = false;
+        let remoteActive = false;
+
+        for (let i = startIdx; i <= endIdx && i < maxSamples && i >= 0; i++) {
+          const localRMS = localRMSRef.current[i] ?? 0;
+          const remoteRMS = remoteRMSRef.current[i] ?? 0;
+
+          if (localRMS >= SILENCE_THRESHOLD) localActive = true;
+          if (remoteRMS >= SILENCE_THRESHOLD) remoteActive = true;
+
+          if (localActive && remoteActive) break; // Both found
+        }
+
+        if (localActive && remoteActive) return 'both';
+        if (localActive) return 'local';
+        if (remoteActive) return 'remote';
+        return 'none';
+      };
 
       // First pass: identify silence periods with minimum duration
       interface SilencePeriod {
         startIndex: number;
         endIndex: number;
         durationMs: number;
+        isUserToAgent: boolean; // true if user spoke before and agent after (measure response time)
       }
       const silencePeriods: SilencePeriod[] = [];
 
@@ -198,36 +221,76 @@ export function WaveformVisualizer({
             }
           }
 
-          // If this silence period is long enough, record it
+          // If this silence period is long enough, check if it's a conversational gap
           if (silenceCount >= MIN_SILENCE_SAMPLES) {
-            const durationMs = silenceCount * SAMPLE_INTERVAL_MS;
-            silencePeriods.push({
-              startIndex: i,
-              endIndex: i + silenceCount - 1,
-              durationMs
-            });
+            // Look back to see who was speaking before the silence
+            const speakerBefore = getActiveSpeaker(
+              Math.max(0, i - LOOKBACK_SAMPLES),
+              i - 1
+            );
+
+            // Look ahead to see who speaks after the silence
+            const speakerAfter = getActiveSpeaker(
+              i + silenceCount,
+              Math.min(maxSamples - 1, i + silenceCount + LOOKBACK_SAMPLES)
+            );
+
+            // Only highlight if:
+            // 1. Different speakers before and after (turn-taking), OR
+            // 2. No one speaking before or after (true conversational silence)
+            // Don't highlight if same speaker continues (pause within speech)
+            const isTurnChange = speakerBefore !== speakerAfter;
+            const isConversationalGap = speakerBefore === 'none' || speakerAfter === 'none';
+            const isSameSpeakerContinuing = speakerBefore === speakerAfter && speakerBefore !== 'none' && speakerBefore !== 'both';
+
+            if ((isTurnChange || isConversationalGap) && !isSameSpeakerContinuing) {
+              const durationMs = silenceCount * SAMPLE_INTERVAL_MS;
+              // Check if this is user → agent transition:
+              // - Local (user) spoke before, AND
+              // - Remote (agent) speaks after OR nobody has spoken yet (agent hasn't responded yet)
+              // This ensures the classification stays stable as the agent starts speaking
+              const isUserToAgent = speakerBefore === 'local' && (speakerAfter === 'remote' || speakerAfter === 'none');
+
+              silencePeriods.push({
+                startIndex: i,
+                endIndex: i + silenceCount - 1,
+                durationMs,
+                isUserToAgent
+              });
+            }
+
             i += silenceCount - 1; // Skip ahead since we've processed these
           }
         }
       }
 
       // Second pass: draw the continuous silence backgrounds
-      ctx.fillStyle = "#dc2626"; // red for silence
       for (const period of silencePeriods) {
         const startX = period.startIndex * pixelsPerSample;
         const endX = (period.endIndex + 1) * pixelsPerSample;
         const periodWidth = endX - startX;
 
+        // Use different colors based on transition type
+        if (period.isUserToAgent) {
+          // User → Agent: Full red (measuring agent response time)
+          ctx.fillStyle = "#dc2626";
+        } else {
+          // Agent → User or other: Subtle red (just marking the gap)
+          ctx.fillStyle = "#dc262630"; // Same red but with low opacity
+        }
+
         // Draw silence background
         ctx.fillRect(startX, 0, periodWidth, height);
       }
 
-      // Third pass: draw duration labels on top
+      // Third pass: draw duration labels only for user→agent transitions
       ctx.fillStyle = "#ffffff";
       ctx.font = "10px monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       for (const period of silencePeriods) {
+        if (!period.isUserToAgent) continue; // Only show duration for user→agent
+
         const startX = period.startIndex * pixelsPerSample;
         const endX = (period.endIndex + 1) * pixelsPerSample;
         const periodWidth = endX - startX;

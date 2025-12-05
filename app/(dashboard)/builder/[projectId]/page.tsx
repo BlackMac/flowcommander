@@ -414,7 +414,7 @@ export default function BuilderPage() {
           if (line.startsWith("[STATUS]")) {
             const statusMsg = line.replace("[STATUS]", "").trim();
             statuses.push(statusMsg);
-            setGenerationStatus([...statuses]);
+            setGenerationStatus([statusMsg]); // Only show current status
           } else {
             generatedCode += line + "\n";
           }
@@ -549,7 +549,7 @@ export default function BuilderPage() {
           if (line.startsWith("[STATUS]")) {
             const statusMsg = line.replace("[STATUS]", "").trim();
             statuses.push(statusMsg);
-            setChatStatus([...statuses]);
+            setChatStatus([statusMsg]); // Only show current status
             console.log("[Chat Frontend] Status message:", statusMsg);
           } else {
             responseText += line + "\n";

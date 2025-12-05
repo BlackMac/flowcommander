@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       .limit(10);
 
     // Build messages array with history
-    const messages: { role: "user" | "assistant"; content: string }[] = [];
+    const messages: { role: "user" | "assistant"; content: string | any }[] = [];
 
     if (previousMessages) {
       for (const msg of previousMessages.slice(0, -1)) {

@@ -44,7 +44,7 @@ export async function POST(request: Request) {
         name: "resolve_library_id",
         description: "Search for a library's Context7-compatible ID by name. Use this when you need to look up documentation for an npm package or library.",
         input_schema: {
-          type: "object",
+          type: "object" as const,
           properties: {
             library_name: {
               type: "string",
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
         name: "get_library_docs",
         description: "Fetch up-to-date documentation and code examples for a specific library. Use this to get current API references, usage patterns, and examples.",
         input_schema: {
-          type: "object",
+          type: "object" as const,
           properties: {
             library_id: {
               type: "string",
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
           required: ["library_id"],
         },
       },
-    ];
+    ] as const;
 
     // Create streaming response with tool support
     const stream = await client.messages.stream({

@@ -41,3 +41,16 @@ body {
 .animate-fade-in {
   animation: fade-in 0.5s ease-out;
 }
+
+/* Override DaisyUI code styling in chat bubbles */
+.chat-bubble code {
+  background: none !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+.chat-bubble pre code {
+  background: rgba(0, 0, 0, 0.1) !important;
+  padding: 0.5rem !important;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import ReactMarkdown from "react-markdown";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
@@ -41,7 +42,39 @@ export function ChatMessage({ role, content, timestamp }: ChatMessageProps) {
       <div
         className={`chat-bubble ${isAssistant ? "chat-bubble-primary" : ""} text-sm`}
       >
-        {content}
+        <ReactMarkdown
+          components={{
+            // Customize rendering to work well in chat bubbles
+            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+            code: ({ node, inline, className, children, ...props }: any) => {
+              // Check if this is inline code (no className means it's inline)
+              const isInline = inline !== false && !className;
+
+              if (isInline) {
+                return (
+                  <code className="font-mono" {...props}>
+                    {children}
+                  </code>
+                );
+              }
+
+              return (
+                <pre className="bg-black/10 text-base-content p-2 rounded text-xs overflow-x-auto my-2">
+                  <code className="font-mono" {...props}>
+                    {children}
+                  </code>
+                </pre>
+              );
+            },
+            ul: ({ children }) => <ul className="list-disc list-inside mb-2 last:mb-0 space-y-1">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 last:mb-0 space-y-1">{children}</ol>,
+            li: ({ children }) => <li>{children}</li>,
+            strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+            em: ({ children }) => <em className="italic">{children}</em>,
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );

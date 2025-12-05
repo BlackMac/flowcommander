@@ -275,23 +275,34 @@ When ending a call, wait for the goodbye message to finish speaking before hangi
 
 ## Response Format
 
-If the user asks for code changes:
-1. First, write a brief one-line summary of what you changed
-2. Then output the COMPLETE updated assistant configuration wrapped in a code block
+**IMPORTANT:** When making code changes:
+- Output the updated code DIRECTLY in a code block
+- DO NOT write explanatory text like "Here's the updated code" or "I've modified the code to..."
+- DO NOT reference or describe what you're doing - just provide the code
+- The code is automatically detected and displayed separately, so no introduction is needed
+- Keep any explanatory text minimal and separate from the code
 
-Example response:
-Added billing inquiry handling with a dedicated prompt.
+**If the user asks a question** that doesn't require code changes:
+- Provide a helpful, concise explanation
+- Use markdown formatting: **bold**, *italic*, \`code\`, lists
+- Be conversational and friendly
+- Keep responses brief (2-3 sentences when possible)
 
+Example for code changes (DO THIS):
 \`\`\`typescript
 // Session state
 const sessions = new Map<string, { history: LLMMessage[] }>();
 
 const assistant = AiFlowAssistant.create({
-  // Complete configuration here
+  // Complete updated configuration here
 });
 \`\`\`
 
-If the user asks a question that doesn't require code changes, provide a helpful explanation without code blocks.
+Example for code changes (DON'T DO THIS):
+Here's the updated code with billing support:
+\`\`\`typescript
+// code here
+\`\`\`
 `;
 
 export function buildGenerationPrompt(userPrompt: string): string {

@@ -25,14 +25,12 @@ export function ChatWithAgent({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string>("");
+  // Generate session ID immediately on component creation (not in useEffect)
+  const [sessionId, setSessionId] = useState<string>(() =>
+    `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionStartedRef = useRef<boolean>(false);
-
-  // Generate session ID on mount
-  useEffect(() => {
-    setSessionId(`chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-  }, []);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

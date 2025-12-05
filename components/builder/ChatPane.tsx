@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ChatWithAgent } from "./ChatWithAgent";
 
 interface ChatPaneProps {
@@ -15,6 +16,9 @@ export function ChatPane({
   projectName,
   sandboxStatus,
 }: ChatPaneProps) {
+  // Generate a unique key when component mounts to force new session
+  const [chatKey] = useState(() => Date.now());
+
   return (
     <div className="h-full flex flex-col bg-base-100">
       {/* Content */}
@@ -22,6 +26,7 @@ export function ChatPane({
         {sandboxStatus === "running" && phoneNumber ? (
           <div className="h-full max-w-4xl mx-auto">
             <ChatWithAgent
+              key={chatKey}
               isOpen={true}
               onClose={() => {}}
               webhookUrl={webhookUrl}

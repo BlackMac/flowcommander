@@ -9,13 +9,17 @@ export async function POST() {
     // Find all phone numbers that have a project_id
     const { data: assignedNumbers, error: fetchError } = await serviceClient
       .from("phone_numbers")
-      .select("id, number, project_id")
+      .select("id, phone_number, display_number, project_id")
       .not("project_id", "is", null);
 
     if (fetchError) {
       console.error("Failed to fetch assigned numbers:", fetchError);
       return NextResponse.json(
-        { error: "Failed to fetch phone numbers" },
+        {
+          error: "Failed to fetch phone numbers",
+          details: fetchError.message,
+          code: fetchError.code,
+        },
         { status: 500 }
       );
     }
@@ -79,7 +83,8 @@ export async function POST() {
       released: orphanedNumbers.length,
       totalChecked: assignedNumbers.length,
       orphanedNumbers: orphanedNumbers.map((n) => ({
-        number: n.number,
+        number: n.display_number,
+        phoneNumber: n.phone_number,
         projectId: n.project_id,
       })),
     });

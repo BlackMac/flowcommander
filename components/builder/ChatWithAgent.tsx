@@ -14,6 +14,7 @@ interface ChatWithAgentProps {
   onClose: () => void;
   webhookUrl: string | null;
   projectName: string;
+  onAddEvent?: (eventType: string, data: any) => void;
 }
 
 export function ChatWithAgent({
@@ -21,6 +22,7 @@ export function ChatWithAgent({
   onClose,
   webhookUrl,
   projectName,
+  onAddEvent,
 }: ChatWithAgentProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -49,6 +51,13 @@ export function ChatWithAgent({
     if (!webhookUrl) return;
 
     setIsLoading(true);
+
+    // Log session start event
+    onAddEvent?.("session_start", {
+      session_id: sessionId,
+      type: "text_chat",
+    });
+
     try {
       const response = await fetch("/api/chat-test", {
         method: "POST",
@@ -67,6 +76,11 @@ export function ChatWithAgent({
         const data = await response.json();
         if (data.text) {
           addMessage("assistant", data.text);
+          // Log assistant response event
+          onAddEvent?.("assistant_speak", {
+            text: data.text,
+            session_id: sessionId,
+          });
         }
       } else {
         const error = await response.json();
@@ -102,6 +116,12 @@ export function ChatWithAgent({
     setInput("");
     addMessage("user", userMessage);
 
+    // Log user speak event
+    onAddEvent?.("user_speak", {
+      text: userMessage,
+      session_id: sessionId,
+    });
+
     setIsLoading(true);
     try {
       const response = await fetch("/api/chat-test", {
@@ -122,11 +142,20 @@ export function ChatWithAgent({
         const data = await response.json();
         if (data.text) {
           addMessage("assistant", data.text);
+          // Log assistant response event
+          onAddEvent?.("assistant_speak", {
+            text: data.text,
+            session_id: sessionId,
+          });
         }
 
         // Check if call should end
         if (data.type === "hangup") {
           addMessage("assistant", "_Call ended_");
+          onAddEvent?.("session_end", {
+            session_id: sessionId,
+            reason: "hangup",
+          });
           setIsLoading(false);
           return;
         }

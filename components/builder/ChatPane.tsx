@@ -8,6 +8,7 @@ interface ChatPaneProps {
   webhookUrl: string | null;
   projectName: string;
   sandboxStatus: "stopped" | "starting" | "running" | "error";
+  onAddEvent?: (eventType: string, data: any) => void;
 }
 
 export function ChatPane({
@@ -15,6 +16,7 @@ export function ChatPane({
   webhookUrl,
   projectName,
   sandboxStatus,
+  onAddEvent,
 }: ChatPaneProps) {
   // Generate a unique key when component mounts to force new session
   const [chatKey] = useState(() => Date.now());
@@ -31,6 +33,7 @@ export function ChatPane({
               onClose={() => {}}
               webhookUrl={webhookUrl}
               projectName={projectName}
+              onAddEvent={onAddEvent}
             />
           </div>
         ) : (

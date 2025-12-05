@@ -41,6 +41,7 @@ export default function BuilderPage() {
   const [flowDiagramError, setFlowDiagramError] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<string[]>([]);
   const [chatStatus, setChatStatus] = useState<string[]>([]);
+  const [chatTestEvents, setChatTestEvents] = useState<WebhookEvent[]>([]);
 
   // Flow diagram cache - persists across tab switches
   const [cachedMermaidCode, setCachedMermaidCode] = useState<string | null>(null);
@@ -63,7 +64,20 @@ export default function BuilderPage() {
   const handleClearEvents = useCallback(() => {
     eventsClearedAt.current = new Date();
     setEvents([]);
+    setChatTestEvents([]);
   }, []);
+
+  // Add chat test event to the event log
+  const handleAddChatEvent = useCallback((eventType: string, data: any) => {
+    const newEvent: WebhookEvent = {
+      id: `chat-${Date.now()}-${Math.random()}`,
+      project_id: projectId,
+      event_type: eventType,
+      event_data: data,
+      created_at: new Date().toISOString(),
+    };
+    setChatTestEvents((prev) => [...prev, newEvent]);
+  }, [projectId]);
 
   // Check if sandbox is actually running
   const checkSandboxStatus = useCallback(async () => {
@@ -792,12 +806,15 @@ export default function BuilderPage() {
           webhookUrl={webhookUrl}
           projectName={project?.name || "Untitled"}
           sandboxStatus={sandboxStatus}
+          onAddEvent={handleAddChatEvent}
         />
       }
       logsPanel={
         <LogsPanel
           projectId={projectId}
-          events={events}
+          events={[...events, ...chatTestEvents].sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          )}
           sandboxRunning={sandboxStatus === "running"}
           onClearEvents={handleClearEvents}
           crashError={crashError}

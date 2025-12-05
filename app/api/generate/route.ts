@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     const client = getAnthropicClient();
 
     // Define Context7 tools for fetching documentation
-    const tools = [
+    const tools: any[] = [
       {
         name: "resolve_library_id",
         description: "Search for a library's Context7-compatible ID by name. Use this when you need to look up documentation for an npm package or library.",
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
           required: ["library_id"],
         },
       },
-    ] as const;
+    ];
 
     // Create streaming response with tool support
     const stream = await client.messages.stream({

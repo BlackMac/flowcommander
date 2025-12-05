@@ -81,6 +81,23 @@ The runtime automatically wraps your code with:
    - The system detects imports and installs packages before running your code
    - No need to declare dependencies separately
 
+   **CRITICAL RULE: You MUST fetch documentation before using any npm package!**
+   - Before using ANY npm package (except @sipgate/ai-flow-sdk and express which are built-in), you MUST:
+     1. First use \`resolve_library_id\` tool to find the package's library ID
+     2. Then use \`get_library_docs\` tool to fetch up-to-date documentation
+     3. Only after successfully retrieving docs can you use that package in your code
+   - If you cannot find documentation for a package, DO NOT use it - find an alternative with available docs
+   - This ensures you use current, accurate APIs and prevents hallucinated methods
+   - The tools are available to you - use them proactively when you need a package!
+
+   Example workflow:
+   \`\`\`
+   User: "Add email notifications"
+   → Use resolve_library_id("nodemailer") to find /nodemailer/nodemailer
+   → Use get_library_docs("/nodemailer/nodemailer", topic="smtp") to get SMTP docs
+   → Generate code using the actual nodemailer API from the docs
+   \`\`\`
+
 5. **Configuration values - use constants, NOT environment variables:**
    - **ALWAYS** define configuration values as constants at the top of the code
    - Use SCREAMING_SNAKE_CASE for constant names
@@ -269,6 +286,23 @@ ${getSDKDocs()}
 ## NPM Packages Are Auto-Installed
 Simply import any npm package you need - it will be automatically installed before deployment.
 Examples: \`import axios from "axios"\`, \`import { z } from "zod"\`, \`import dayjs from "dayjs"\`
+
+**CRITICAL RULE: You MUST fetch documentation before using any npm package!**
+- Before using ANY npm package (except @sipgate/ai-flow-sdk and express which are built-in), you MUST:
+  1. First use \`resolve_library_id\` tool to find the package's library ID
+  2. Then use \`get_library_docs\` tool to fetch up-to-date documentation
+  3. Only after successfully retrieving docs can you use that package in your code
+- If you cannot find documentation for a package, DO NOT use it - find an alternative with available docs
+- This ensures you use current, accurate APIs and prevents hallucinated methods
+- The tools are available to you - use them proactively when you need a package!
+
+Example workflow:
+\`\`\`
+User: "Add database connection"
+→ Use resolve_library_id("mongodb") to find /mongodb/node-mongodb-native
+→ Use get_library_docs("/mongodb/node-mongodb-native", topic="connection") to get docs
+→ Generate code using the actual MongoDB API from the docs
+\`\`\`
 
 ## Configuration Values - Use Constants NOT Environment Variables
 **ALWAYS** define configuration values as constants at the top of the code in SCREAMING_SNAKE_CASE.

@@ -23,13 +23,18 @@ const FUNNY_MESSAGES = [
   "🌈 Adding a dash of personality...",
   "⚡ Charging conversation batteries...",
   "🎬 Directing: 'Action! Be helpful and friendly!'...",
+  "🛠️ Tweaking the dials on empathy...",
+  "📚 Reading 'How to Win Friends and Influence People'...",
+  "🍵 Brewing a fresh pot of conversational tea...",
+  "🕺 Teaching the bot to dance around tough questions...",
 ];
 
 interface GeneratingModalProps {
   isOpen: boolean;
+  statusMessages?: string[]; // Tool use status messages
 }
 
-export function GeneratingModal({ isOpen }: GeneratingModalProps) {
+export function GeneratingModal({ isOpen, statusMessages = [] }: GeneratingModalProps) {
   const [currentMessage, setCurrentMessage] = useState(FUNNY_MESSAGES[0]);
 
   useEffect(() => {
@@ -80,10 +85,24 @@ export function GeneratingModal({ isOpen }: GeneratingModalProps) {
             Crafting Your Agent
           </h2>
 
-          {/* Random message */}
-          <p className="text-lg text-base-content/80 mb-6 min-h-[2rem] animate-fade-in" key={currentMessage}>
-            {currentMessage}
-          </p>
+          {/* Status messages (tool use) */}
+          {statusMessages.length > 0 ? (
+            <div className="space-y-2 mb-6">
+              {statusMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className="badge badge-lg badge-primary gap-2 animate-fade-in"
+                >
+                  {msg}
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* Random message */
+            <p className="text-lg text-base-content/80 mb-6 min-h-[2rem] animate-fade-in" key={currentMessage}>
+              {currentMessage}
+            </p>
+          )}
 
           {/* Progress indicator */}
           <div className="flex gap-2 items-center">

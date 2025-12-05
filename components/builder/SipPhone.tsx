@@ -12,11 +12,13 @@ interface AudioDevice {
 
 interface SipPhoneProps {
   phoneNumber: string; // The number to call (display format like "02041-34873-10")
+  webhookUrl: string | null; // Webhook URL (not used anymore, kept for compatibility)
+  projectName: string; // Project name (not used anymore, kept for compatibility)
   onCallStateChange?: (state: CallState) => void;
   disabled?: boolean; // If true, disable calling (e.g., when code has undeployed changes)
 }
 
-export function SipPhone({ phoneNumber, onCallStateChange, disabled = false }: SipPhoneProps) {
+export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChange, disabled = false }: SipPhoneProps) {
   const [callState, setCallState] = useState<CallState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);

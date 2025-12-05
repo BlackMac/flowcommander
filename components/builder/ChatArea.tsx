@@ -10,9 +10,10 @@ interface ChatAreaProps {
   messages: ChatMessageType[];
   onSendMessage: (message: string) => void;
   isLoading?: boolean;
+  statusMessages?: string[];
 }
 
-export function ChatArea({ messages, onSendMessage, isLoading }: ChatAreaProps) {
+export function ChatArea({ messages, onSendMessage, isLoading, statusMessages = [] }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -79,7 +80,23 @@ export function ChatArea({ messages, onSendMessage, isLoading }: ChatAreaProps) 
               </div>
             </div>
             <div className="chat-bubble chat-bubble-primary">
-              <span className="loading loading-dots loading-sm"></span>
+              {statusMessages.length > 0 ? (
+                <div className="space-y-1">
+                  {statusMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      className="text-sm opacity-90"
+                    >
+                      {msg}
+                    </div>
+                  ))}
+                  <div className="mt-2">
+                    <span className="loading loading-dots loading-sm"></span>
+                  </div>
+                </div>
+              ) : (
+                <span className="loading loading-dots loading-sm"></span>
+              )}
             </div>
           </div>
         )}

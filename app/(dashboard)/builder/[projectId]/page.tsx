@@ -6,6 +6,7 @@ import { BuilderLayout } from "@/components/builder/BuilderLayout";
 import { Sidebar } from "@/components/builder/Sidebar";
 import { EditorPane } from "@/components/builder/EditorPane";
 import { FlowDiagramPane } from "@/components/builder/FlowDiagramPane";
+import { TestPane } from "@/components/builder/TestPane";
 import { ChatArea } from "@/components/builder/ChatArea";
 import { SandboxControls } from "@/components/builder/SandboxControls";
 import { LogsPanel } from "@/components/builder/LogsPanel";
@@ -37,6 +38,8 @@ export default function BuilderPage() {
   const [pendingChatMessage, setPendingChatMessage] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [flowDiagramError, setFlowDiagramError] = useState<string | null>(null);
+  const [generationStatus, setGenerationStatus] = useState<string[]>([]);
+  const [chatStatus, setChatStatus] = useState<string[]>([]);
 
   // Flow diagram cache - persists across tab switches
   const [cachedMermaidCode, setCachedMermaidCode] = useState<string | null>(null);
@@ -384,6 +387,7 @@ export default function BuilderPage() {
   // Generate code from prompt
   const generateCode = async (prompt: string) => {
     setIsGenerating(true);
+    setGenerationStatus([]);
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -396,13 +400,26 @@ export default function BuilderPage() {
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let generatedCode = "";
+      const statuses: string[] = [];
 
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value);
-        generatedCode += chunk;
+
+        // Check for status messages
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("[STATUS]")) {
+            const statusMsg = line.replace("[STATUS]", "").trim();
+            statuses.push(statusMsg);
+            setGenerationStatus([...statuses]);
+          } else {
+            generatedCode += line + "\n";
+          }
+        }
+
         // Strip any trailing closing fence while streaming
         const displayCode = generatedCode.replace(/\n?```\s*$/, "");
         setCode(displayCode);
@@ -487,6 +504,7 @@ export default function BuilderPage() {
   // Handle chat message
   const handleSendMessage = async (message: string) => {
     setIsChatLoading(true);
+    setChatStatus([]); // Reset status messages
 
     // Add user message optimistically
     const userMessage: ChatMessage = {
@@ -497,6 +515,8 @@ export default function BuilderPage() {
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, userMessage]);
+
+    const statuses: string[] = []; // Move outside try block
 
     try {
       const res = await fetch("/api/chat", {
@@ -522,7 +542,19 @@ export default function BuilderPage() {
         if (done) break;
 
         const chunk = decoder.decode(value);
-        responseText += chunk;
+
+        // Check for status messages
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("[STATUS]")) {
+            const statusMsg = line.replace("[STATUS]", "").trim();
+            statuses.push(statusMsg);
+            setChatStatus([...statuses]);
+            console.log("[Chat Frontend] Status message:", statusMsg);
+          } else {
+            responseText += line + "\n";
+          }
+        }
 
         // Simple parsing - check if response contains code
         if (responseText.includes("```typescript")) {
@@ -563,8 +595,12 @@ export default function BuilderPage() {
       }
     } catch (error) {
       console.error("Failed to send message:", error);
-    } finally {
       setIsChatLoading(false);
+      setChatStatus([]);
+    } finally {
+      console.log("[Chat Frontend] Final status messages:", statuses);
+      setIsChatLoading(false);
+      setChatStatus([]);
     }
   };
 
@@ -703,6 +739,7 @@ export default function BuilderPage() {
               messages={messages}
               onSendMessage={handleSendMessage}
               isLoading={isChatLoading}
+              statusMessages={chatStatus}
             />
           }
           sandboxControls={
@@ -739,6 +776,15 @@ export default function BuilderPage() {
           }}
         />
       }
+      testPane={
+        <TestPane
+          phoneNumber={phoneNumber?.display_number || null}
+          webhookUrl={webhookUrl}
+          projectName={project?.name || "Untitled"}
+          sandboxStatus={sandboxStatus}
+          disabled={isDeploying}
+        />
+      }
       logsPanel={
         <LogsPanel
           projectId={projectId}
@@ -752,7 +798,7 @@ export default function BuilderPage() {
       }
     >
       {/* Show generating modal only during initial code generation (not chat refinements) */}
-      <GeneratingModal isOpen={isInitialGeneration} />
+      <GeneratingModal isOpen={isInitialGeneration} statusMessages={generationStatus} />
     </BuilderLayout>
   );
 }

@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -105,6 +105,7 @@ export async function DELETE(
 ) {
   const { projectId } = await params;
   const supabase = await createClient();
+  const serviceClient = createServiceClient();
 
   const {
     data: { user },
@@ -112,6 +113,20 @@ export async function DELETE(
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Release the phone number back to the pool (using service client to bypass RLS)
+  const { error: releaseError } = await serviceClient
+    .from("phone_numbers")
+    .update({
+      project_id: null,
+      assigned_at: null,
+    })
+    .eq("project_id", projectId);
+
+  if (releaseError) {
+    console.error("Failed to release phone number:", releaseError);
+    // Continue with deletion even if phone release fails
   }
 
   const { error } = await supabase

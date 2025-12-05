@@ -303,12 +303,13 @@ export function ChatWithAgent({
               role={message.role}
               content={message.content}
               timestamp={message.timestamp}
+              variant="agent"
             />
           ))}
           {isLoading && (
             <div className="flex justify-start">
               <div className="chat chat-start">
-                <div className="chat-bubble chat-bubble-primary">
+                <div className="chat-bubble chat-bubble-secondary">
                   <span className="loading loading-dots loading-sm"></span>
                 </div>
               </div>

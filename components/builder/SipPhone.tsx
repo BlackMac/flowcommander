@@ -13,9 +13,10 @@ interface AudioDevice {
 interface SipPhoneProps {
   phoneNumber: string; // The number to call (display format like "02041-34873-10")
   onCallStateChange?: (state: CallState) => void;
+  disabled?: boolean; // If true, disable calling (e.g., when code has undeployed changes)
 }
 
-export function SipPhone({ phoneNumber, onCallStateChange }: SipPhoneProps) {
+export function SipPhone({ phoneNumber, onCallStateChange, disabled = false }: SipPhoneProps) {
   const [callState, setCallState] = useState<CallState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -420,8 +421,9 @@ export function SipPhone({ phoneNumber, onCallStateChange }: SipPhoneProps) {
         ) : (
           <button
             onClick={handleCall}
-            disabled={isLoading || callState === "ended"}
+            disabled={isLoading || callState === "ended" || disabled}
             className="btn btn-success btn-sm gap-2 flex-1"
+            title={disabled ? "Wait for deployment to finish" : undefined}
           >
             {isLoading ? (
               <span className="loading loading-spinner loading-xs"></span>
@@ -452,7 +454,7 @@ export function SipPhone({ phoneNumber, onCallStateChange }: SipPhoneProps) {
               tabIndex={0}
               className="btn btn-ghost btn-sm btn-square"
               title="Select audio devices"
-              disabled={isCallActive}
+              disabled={isCallActive || disabled}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"

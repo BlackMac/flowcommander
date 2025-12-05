@@ -1,6 +1,100 @@
 import { Sandbox } from "e2b";
 import { generateRuntimeWrapper } from "@/lib/llm/sandbox-client";
 
+// Built-in Node.js modules that don't need to be installed
+const BUILTIN_MODULES = new Set([
+  "assert", "buffer", "child_process", "cluster", "crypto", "dgram", "dns",
+  "domain", "events", "fs", "http", "https", "net", "os", "path", "punycode",
+  "querystring", "readline", "repl", "stream", "string_decoder", "timers",
+  "tls", "tty", "url", "util", "v8", "vm", "zlib", "process", "console",
+  "constants", "module", "async_hooks", "http2", "perf_hooks", "worker_threads",
+]);
+
+// Pre-installed packages in our E2B template
+const PREINSTALLED_PACKAGES = new Set([
+  "@sipgate/ai-flow-sdk",
+  "express",
+  "tsx",
+]);
+
+/**
+ * Extract npm package names from import/require statements
+ */
+function extractImportsFromCode(code: string): Set<string> {
+  const imports = new Set<string>();
+
+  // Match ES6 imports: import ... from 'package' or import('package')
+  const importRegex = /import\s+(?:[\w{},\s*]*\s+from\s+)?['"]([^'"]+)['"]/g;
+  let match;
+  while ((match = importRegex.exec(code)) !== null) {
+    imports.add(match[1]);
+  }
+
+  // Match dynamic imports: import('package')
+  const dynamicImportRegex = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((match = dynamicImportRegex.exec(code)) !== null) {
+    imports.add(match[1]);
+  }
+
+  // Match CommonJS requires: require('package')
+  const requireRegex = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((match = requireRegex.exec(code)) !== null) {
+    imports.add(match[1]);
+  }
+
+  return imports;
+}
+
+/**
+ * Convert import specifiers to npm package names
+ * e.g., "axios" -> "axios", "@org/package/subpath" -> "@org/package"
+ */
+function getPackageNameFromImport(importPath: string): string | null {
+  // Ignore relative imports
+  if (importPath.startsWith('.') || importPath.startsWith('/')) {
+    return null;
+  }
+
+  // Ignore built-in modules
+  if (BUILTIN_MODULES.has(importPath) || importPath.startsWith('node:')) {
+    return null;
+  }
+
+  // Ignore pre-installed packages
+  if (PREINSTALLED_PACKAGES.has(importPath)) {
+    return null;
+  }
+
+  // Handle scoped packages: @org/package/subpath -> @org/package
+  if (importPath.startsWith('@')) {
+    const parts = importPath.split('/');
+    if (parts.length >= 2) {
+      return `${parts[0]}/${parts[1]}`;
+    }
+  }
+
+  // Regular packages: package/subpath -> package
+  const parts = importPath.split('/');
+  return parts[0];
+}
+
+/**
+ * Detect npm packages needed from code and return unique list
+ */
+function detectRequiredPackages(code: string): string[] {
+  const imports = extractImportsFromCode(code);
+  const packages = new Set<string>();
+
+  for (const importPath of imports) {
+    const packageName = getPackageNameFromImport(importPath);
+    if (packageName && !PREINSTALLED_PACKAGES.has(packageName)) {
+      packages.add(packageName);
+    }
+  }
+
+  return Array.from(packages).sort();
+}
+
 // Store active sandboxes by project ID
 const activeSandboxes = new Map<string, Sandbox>();
 
@@ -160,6 +254,66 @@ export async function deploySandbox(
       timeoutMs: 5000,
     });
     console.log(`[E2B] Working dir check: ${pwdCheck.stdout}`);
+
+    // Detect required npm packages from user code
+    console.log(`[E2B] Analyzing code for imports (code length: ${code.length})`);
+    console.log(`[E2B] Code preview for import detection:\n${code.substring(0, 500)}`);
+
+    const requiredPackages = detectRequiredPackages(code);
+    console.log(`[E2B] Detected ${requiredPackages.length} required packages:`, requiredPackages);
+
+    // Always create package.json to ensure consistent package availability
+    // Include both pre-installed packages and user-detected packages
+    const allDependencies = {
+      "@sipgate/ai-flow-sdk": "latest",
+      "express": "latest",
+      "tsx": "latest",
+      ...Object.fromEntries(requiredPackages.map(pkg => [pkg, "latest"])),
+    };
+
+    const packageJson = {
+      name: "voice-agent",
+      version: "1.0.0",
+      type: "module",
+      dependencies: allDependencies,
+    };
+
+    try {
+      const packageJsonContent = JSON.stringify(packageJson, null, 2);
+      console.log("[E2B] Writing package.json:", packageJsonContent);
+      await sandbox.files.write("/home/user/package.json", packageJsonContent);
+
+      if (requiredPackages.length > 0) {
+        logs.push(`Installing packages: ${requiredPackages.join(", ")}`);
+      } else {
+        logs.push("Installing base packages");
+      }
+
+      // Run npm install with timeout (max 2 minutes for package installation)
+      const installResult = await sandbox.commands.run(
+        "cd /home/user && npm install --no-audit --no-fund",
+        { timeoutMs: 120000 }
+      );
+
+      console.log(`[E2B] npm install exit code: ${installResult.exitCode}`);
+      console.log(`[E2B] npm install stdout: ${installResult.stdout}`);
+      console.log(`[E2B] npm install stderr: ${installResult.stderr}`);
+
+      if (installResult.exitCode === 0) {
+        if (requiredPackages.length > 0) {
+          logs.push(`Installed: ${requiredPackages.join(", ")}`);
+        }
+        console.log("[E2B] npm install completed successfully");
+      } else {
+        logs.push(`npm install failed: ${installResult.stderr}`);
+        console.error("[E2B] npm install failed with code:", installResult.exitCode);
+      }
+    } catch (installError) {
+      const errorMsg = installError instanceof Error ? installError.message : String(installError);
+      logs.push(`Package installation error: ${errorMsg}`);
+      console.error("[E2B] Package installation error:", installError);
+      // Continue anyway - maybe packages aren't actually needed
+    }
 
     // Wrap user code with runtime (imports, callLLM, server setup)
     const fullCode = generateRuntimeWrapper(projectId, code);

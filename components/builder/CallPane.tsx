@@ -2,12 +2,16 @@
 
 import { SipPhone } from "./SipPhone";
 
+type CallState = "idle" | "connecting" | "ringing" | "active" | "ended" | "error";
+
 interface CallPaneProps {
   phoneNumber: string | null;
   webhookUrl: string | null;
   projectName: string;
   sandboxStatus: "stopped" | "starting" | "running" | "error";
   disabled?: boolean;
+  onAudioStreamsChange?: (local: MediaStream | null, remote: MediaStream | null) => void;
+  onCallStateChange?: (state: CallState) => void;
 }
 
 export function CallPane({
@@ -16,6 +20,8 @@ export function CallPane({
   projectName,
   sandboxStatus,
   disabled = false,
+  onAudioStreamsChange,
+  onCallStateChange,
 }: CallPaneProps) {
   return (
     <div className="h-full flex flex-col bg-base-100">
@@ -75,6 +81,8 @@ export function CallPane({
                   webhookUrl={webhookUrl}
                   projectName={projectName}
                   disabled={disabled}
+                  onAudioStreamsChange={onAudioStreamsChange}
+                  onCallStateChange={onCallStateChange}
                 />
               </div>
             </div>

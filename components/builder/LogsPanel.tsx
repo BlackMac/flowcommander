@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { EventLog } from "./EventLog";
+import { WaveformVisualizer } from "./WaveformVisualizer";
 import type { WebhookEvent } from "@/types/database";
 
 interface LogsPanelProps {
@@ -14,6 +15,9 @@ interface LogsPanelProps {
   crashError?: string | null;
   onClearCrashError?: () => void;
   onDebugCrashError?: () => void;
+  localAudioStream?: MediaStream | null;
+  remoteAudioStream?: MediaStream | null;
+  isCallActive?: boolean;
 }
 
 interface ErrorMessage {
@@ -23,8 +27,8 @@ interface ErrorMessage {
   source: "console" | "event" | "flow-diagram" | "crash";
 }
 
-export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, flowDiagramError, onClearFlowDiagramError, crashError, onClearCrashError, onDebugCrashError }: LogsPanelProps) {
-  const [activeTab, setActiveTab] = useState<"events" | "console" | "errors">("events");
+export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, flowDiagramError, onClearFlowDiagramError, crashError, onClearCrashError, onDebugCrashError, localAudioStream, remoteAudioStream, isCallActive }: LogsPanelProps) {
+  const [activeTab, setActiveTab] = useState<"events" | "console" | "errors" | "waveform">("events");
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -173,7 +177,7 @@ export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, fl
     }
   }, [sandboxRunning]);
 
-  const handleTabChange = (tab: "events" | "console" | "errors") => {
+  const handleTabChange = (tab: "events" | "console" | "errors" | "waveform") => {
     setActiveTab(tab);
   };
 
@@ -245,6 +249,29 @@ export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, fl
                 {errorMessages.length}
               </span>
             )}
+          </button>
+          <button
+            role="tab"
+            className={`tab ${activeTab === "waveform" ? "tab-active" : ""}`}
+            onClick={() => handleTabChange("waveform")}
+            disabled={!isCallActive}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+              className="w-3 h-3 mr-1"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"
+              />
+            </svg>
+            Waveform
+            {isCallActive && <span className="badge badge-xs badge-success ml-1">Live</span>}
           </button>
         </div>
         <div className="ml-auto flex gap-1">
@@ -443,10 +470,14 @@ export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, fl
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === "events" ? (
+        {/* Events tab */}
+        <div className={activeTab === "events" ? "" : "hidden"}>
           <EventLog events={events} />
-        ) : activeTab === "console" ? (
-          sandboxRunning ? (
+        </div>
+
+        {/* Console tab */}
+        <div className={activeTab === "console" ? "" : "hidden"}>
+          {sandboxRunning ? (
             <pre
               ref={consoleRef}
               className="text-xs font-mono whitespace-pre-wrap text-base-content/80 h-full overflow-y-auto"
@@ -463,9 +494,40 @@ export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, fl
             <div className="text-center text-base-content/50 py-4 text-xs">
               Start the sandbox to view console output
             </div>
-          )
-        ) : (
-          /* Errors tab */
+          )}
+        </div>
+
+        {/* Waveform tab - keep mounted to continue accumulating */}
+        <div className={activeTab === "waveform" ? "" : "hidden"}>
+          {isCallActive && localAudioStream && remoteAudioStream ? (
+            <WaveformVisualizer
+              localStream={localAudioStream}
+              remoteStream={remoteAudioStream}
+              isActive={activeTab === "waveform"}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-center text-base-content/50 text-xs gap-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="w-12 h-12 opacity-50"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25"
+                />
+              </svg>
+              Start a call to view audio waveforms
+            </div>
+          )}
+        </div>
+
+        {/* Errors tab */}
+        <div className={activeTab === "errors" ? "" : "hidden"}>
           <div className="space-y-2">
             {errorMessages.length > 0 ? (
               errorMessages.map((error) => (
@@ -514,7 +576,7 @@ export function LogsPanel({ projectId, events, sandboxRunning, onClearEvents, fl
               </div>
             )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

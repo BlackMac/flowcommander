@@ -15,10 +15,11 @@ interface SipPhoneProps {
   webhookUrl: string | null; // Webhook URL (not used anymore, kept for compatibility)
   projectName: string; // Project name (not used anymore, kept for compatibility)
   onCallStateChange?: (state: CallState) => void;
+  onAudioStreamsChange?: (local: MediaStream | null, remote: MediaStream | null) => void;
   disabled?: boolean; // If true, disable calling (e.g., when code has undeployed changes)
 }
 
-export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChange, disabled = false }: SipPhoneProps) {
+export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChange, onAudioStreamsChange, disabled = false }: SipPhoneProps) {
   const [callState, setCallState] = useState<CallState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -244,17 +245,44 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
         // We don't handle incoming calls
         await userAgent.decline();
       },
-      onCallAnswered: () => {
+      onCallAnswered: async () => {
         setCallState("active");
+
+        // Extract MediaStreams for waveform visualization
+        if (onAudioStreamsChange) {
+          try {
+            // Get local microphone stream
+            const localStream = await navigator.mediaDevices.getUserMedia({
+              audio: selectedInputId ? { deviceId: { exact: selectedInputId } } : true,
+              video: false,
+            });
+
+            // Get remote stream from audio element using captureStream (if supported)
+            let remoteStream: MediaStream | null = null;
+            if (audioRef.current && typeof (audioRef.current as any).captureStream === "function") {
+              remoteStream = (audioRef.current as any).captureStream();
+            } else if (audioRef.current && typeof (audioRef.current as any).mozCaptureStream === "function") {
+              // Firefox compatibility
+              remoteStream = (audioRef.current as any).mozCaptureStream();
+            }
+
+            if (localStream && remoteStream) {
+              onAudioStreamsChange(localStream, remoteStream);
+            }
+          } catch (error) {
+            console.error("[SipPhone] Failed to extract audio streams:", error);
+          }
+        }
       },
       onCallHangup: () => {
+        onAudioStreamsChange?.(null, null);
         setCallState("ended");
         setTimeout(() => setCallState("idle"), 2000);
       },
     };
 
     return userAgent;
-  }, [credentials]);
+  }, [credentials, onAudioStreamsChange]);
 
   // Track last used input device to know when to reinitialize
   const lastInputIdRef = useRef<string>("");

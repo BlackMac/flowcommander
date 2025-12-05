@@ -43,6 +43,11 @@ export default function BuilderPage() {
   const [chatStatus, setChatStatus] = useState<string[]>([]);
   const [chatTestEvents, setChatTestEvents] = useState<WebhookEvent[]>([]);
 
+  // Audio streams for waveform visualization
+  const [localAudioStream, setLocalAudioStream] = useState<MediaStream | null>(null);
+  const [remoteAudioStream, setRemoteAudioStream] = useState<MediaStream | null>(null);
+  const [callState, setCallState] = useState<"idle" | "connecting" | "ringing" | "active" | "ended" | "error">("idle");
+
   // Flow diagram cache - persists across tab switches
   const [cachedMermaidCode, setCachedMermaidCode] = useState<string | null>(null);
   const [cachedMermaidHash, setCachedMermaidHash] = useState<string>("");
@@ -78,6 +83,12 @@ export default function BuilderPage() {
     };
     setChatTestEvents((prev) => [...prev, newEvent]);
   }, [projectId]);
+
+  // Handle audio stream changes for waveform visualization
+  const handleAudioStreamsChange = useCallback((local: MediaStream | null, remote: MediaStream | null) => {
+    setLocalAudioStream(local);
+    setRemoteAudioStream(remote);
+  }, []);
 
   // Check if sandbox is actually running
   const checkSandboxStatus = useCallback(async () => {
@@ -798,6 +809,8 @@ export default function BuilderPage() {
           projectName={project?.name || "Untitled"}
           sandboxStatus={sandboxStatus}
           disabled={isDeploying}
+          onAudioStreamsChange={handleAudioStreamsChange}
+          onCallStateChange={setCallState}
         />
       }
       chatPane={
@@ -817,9 +830,14 @@ export default function BuilderPage() {
           )}
           sandboxRunning={sandboxStatus === "running"}
           onClearEvents={handleClearEvents}
+          flowDiagramError={flowDiagramError}
+          onClearFlowDiagramError={() => setFlowDiagramError(null)}
           crashError={crashError}
           onClearCrashError={() => setCrashError(null)}
           onDebugCrashError={handleDebugCrashError}
+          localAudioStream={localAudioStream}
+          remoteAudioStream={remoteAudioStream}
+          isCallActive={callState === "active"}
         />
       }
     >

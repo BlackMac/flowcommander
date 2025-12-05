@@ -4,7 +4,7 @@ import { useState } from "react";
 import { SipPhone } from "./SipPhone";
 import { ChatWithAgent } from "./ChatWithAgent";
 
-type TestMode = "overview" | "call" | "chat";
+type TestMode = "call" | "chat";
 
 interface TestPaneProps {
   phoneNumber: string | null;
@@ -21,7 +21,7 @@ export function TestPane({
   sandboxStatus,
   disabled = false,
 }: TestPaneProps) {
-  const [testMode, setTestMode] = useState<TestMode>("overview");
+  const [testMode, setTestMode] = useState<TestMode>("call");
 
   return (
     <div className="h-full flex flex-col bg-base-100">
@@ -31,14 +31,6 @@ export function TestPane({
           <h2 className="text-2xl font-bold">Test Your Agent</h2>
           {sandboxStatus === "running" && phoneNumber && (
             <div className="join">
-              <button
-                className={`join-item btn btn-sm ${
-                  testMode === "overview" ? "btn-active" : ""
-                }`}
-                onClick={() => setTestMode("overview")}
-              >
-                Overview
-              </button>
               <button
                 className={`join-item btn btn-sm ${
                   testMode === "call" ? "btn-active" : ""
@@ -59,9 +51,7 @@ export function TestPane({
           )}
         </div>
         <p className="text-base-content/70 text-sm">
-          {testMode === "overview"
-            ? "Call or chat with your voice agent to test its functionality"
-            : testMode === "call"
+          {testMode === "call"
             ? "Make a browser-based test call to your agent"
             : "Chat with your agent via text (great for noisy environments)"}
         </p>
@@ -75,13 +65,13 @@ export function TestPane({
             <div className="h-full max-w-4xl mx-auto">
               <ChatWithAgent
                 isOpen={true}
-                onClose={() => setTestMode("overview")}
+                onClose={() => setTestMode("call")}
                 webhookUrl={webhookUrl}
                 projectName={projectName}
               />
             </div>
           ) : (
-            /* Overview and Call Mode */
+            /* Call Mode */
             <div className="max-w-2xl mx-auto space-y-6">
             {/* Phone Number Display */}
             <div className="card bg-base-200">

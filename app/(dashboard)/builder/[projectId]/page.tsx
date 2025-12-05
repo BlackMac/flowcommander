@@ -52,6 +52,8 @@ export default function BuilderPage() {
   const lastSavedCodeRef = useRef<string>("");
   // Track last deployed code to show indicator when changes aren't deployed
   const lastDeployedCodeRef = useRef<string>("");
+  // Track last auto-restart to prevent rapid redeployments
+  const lastAutoRestartRef = useRef<number>(0);
 
   // Clear events handler that also sets the cleared timestamp
   const handleClearEvents = useCallback(() => {
@@ -84,7 +86,18 @@ export default function BuilderPage() {
         });
       } else if (status.status === "port_down") {
         // Server crashed but container is still running - fetch logs and auto-restart
+        // BUT: Add cooldown to prevent rapid redeployments
+        const now = Date.now();
+        const timeSinceLastRestart = now - lastAutoRestartRef.current;
+        const RESTART_COOLDOWN = 30000; // 30 seconds minimum between auto-restarts
+
+        if (timeSinceLastRestart < RESTART_COOLDOWN) {
+          console.log(`[Sandbox] Server down, but auto-restart is on cooldown (${Math.round((RESTART_COOLDOWN - timeSinceLastRestart) / 1000)}s remaining)`);
+          return;
+        }
+
         console.log("[Sandbox] Server crashed, fetching logs and auto-restarting...");
+        lastAutoRestartRef.current = now;
 
         // Fetch error logs before restarting
         try {
@@ -151,13 +164,17 @@ export default function BuilderPage() {
       return;
     }
 
-    // Check immediately when status becomes "running"
-    checkSandboxStatus();
+    // Don't check immediately - give the server time to start up
+    // Wait 15 seconds before the first check to avoid false "crashed" detection
+    const initialCheckTimeout = setTimeout(checkSandboxStatus, 15000);
 
     // Then check every 30 seconds
     const interval = setInterval(checkSandboxStatus, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialCheckTimeout);
+      clearInterval(interval);
+    };
   }, [sandboxStatus, checkSandboxStatus]);
 
   // Fetch project data

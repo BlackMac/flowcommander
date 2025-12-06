@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { ProjectCard } from "@/components/projects/ProjectCard";
-import { UserMenu } from "@/components/ui/UserMenu";
+import { AuthenticatedNavbar } from "@/components/ui/AuthenticatedNavbar";
 import type { Project } from "@/types/database";
 
 type SandboxStatus = "running" | "stopped" | "error" | "checking";
@@ -81,40 +80,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-base-200">
-      {/* Header */}
-      <div className="navbar bg-base-100 border-b border-base-300 px-6">
-        <div className="flex-1">
-          <Link href="/" className="flex items-center gap-2 text-xl font-bold">
-            <img
-              src="/img/logo.svg"
-              alt="FlowCommander"
-              className="w-7 h-7"
-              style={{ filter: "invert(36%) sepia(85%) saturate(2046%) hue-rotate(238deg) brightness(87%) contrast(93%)" }}
-            />
-            FlowCommander
-          </Link>
-        </div>
-        <div className="flex-none flex items-center gap-3">
-          <button onClick={handleNewProject} className="btn btn-primary btn-sm">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-              className="w-4 h-4"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-            New Agent
-          </button>
-          <UserMenu />
-        </div>
-      </div>
+      <AuthenticatedNavbar />
 
       {/* Content */}
       <div className="container mx-auto px-6 py-8">

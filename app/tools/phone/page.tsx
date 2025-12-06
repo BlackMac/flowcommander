@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { SipPhone, type JitterStats } from "@/components/builder/SipPhone";
 import { WaveformVisualizer } from "@/components/builder/WaveformVisualizer";
+import { AuthenticatedNavbar } from "@/components/ui/AuthenticatedNavbar";
 
 type CallState = "idle" | "connecting" | "ringing" | "active" | "ended" | "error";
 
@@ -25,16 +26,7 @@ export default function PhoneToolPage() {
   return (
     <div className="min-h-screen bg-base-200">
       {/* Header */}
-      <div className="navbar bg-base-100 border-b border-base-300">
-        <div className="flex-1">
-          <h1 className="text-xl font-bold ml-4">Phone Testing Tool</h1>
-        </div>
-        <div className="flex-none">
-          <a href="/projects" className="btn btn-ghost btn-sm">
-            Back to Projects
-          </a>
-        </div>
-      </div>
+      <AuthenticatedNavbar title="Phone Testing Tool" />
 
       {/* Main content */}
       <div className="container mx-auto p-8 max-w-6xl">

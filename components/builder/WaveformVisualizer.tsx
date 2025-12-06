@@ -4,15 +4,17 @@ import { useRef, useEffect, useState } from "react";
 import { useAudioStreams } from "./hooks/useAudioStreams";
 
 interface WaveformVisualizerProps {
-  localStream: MediaStream;
-  remoteStream: MediaStream;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
   isActive: boolean;
+  height?: number; // Height in pixels (default: 80)
 }
 
 export function WaveformVisualizer({
   localStream,
   remoteStream,
   isActive,
+  height = 80,
 }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -28,15 +30,39 @@ export function WaveformVisualizer({
   const lastSampleTimeRef = useRef<number>(0);
 
   const [autoScroll, setAutoScroll] = useState(true);
+  const [silenceStats, setSilenceStats] = useState<{
+    avgSilence: number;
+    maxSilence: number;
+    initialSilence: number;
+    avgAgentTalk: number;
+    maxAgentTalk: number;
+  } | null>(null);
 
-  // Clear samples when streams change
+  // Track if we've had streams before to know when a new call starts
+  const hadStreamsRef = useRef(false);
+  const callStartTimeRef = useRef<number | null>(null);
+  const firstVoiceTimeRef = useRef<number | null>(null);
+  const baseContainerWidthRef = useRef<number | null>(null);
+
+  // Clear samples only when a new call starts (streams go from null to active)
   useEffect(() => {
-    localSamplesRef.current = [];
-    remoteSamplesRef.current = [];
-    localRMSRef.current = [];
-    remoteRMSRef.current = [];
-    scrollOffsetRef.current = 0;
-    lastSampleTimeRef.current = 0;
+    const hasStreams = localStream !== null || remoteStream !== null;
+
+    // Only clear when new streams are provided after having no streams
+    // This preserves the waveform after a call ends
+    if (hasStreams && !hadStreamsRef.current) {
+      localSamplesRef.current = [];
+      remoteSamplesRef.current = [];
+      localRMSRef.current = [];
+      remoteRMSRef.current = [];
+      scrollOffsetRef.current = 0;
+      lastSampleTimeRef.current = 0;
+      callStartTimeRef.current = performance.now();
+      firstVoiceTimeRef.current = null;
+      // Don't reset baseContainerWidthRef - keep using the same viewport width
+    }
+
+    hadStreamsRef.current = hasStreams;
   }, [localStream, remoteStream]);
 
   // Separate effect for audio sampling - runs always when streams exist
@@ -44,6 +70,7 @@ export function WaveformVisualizer({
     if (!localData && !remoteData) return;
 
     const SAMPLE_INTERVAL_MS = 50; // Sample audio every 50ms for smooth visualization
+    const SILENCE_THRESHOLD = 3.0; // RMS energy threshold (must match draw loop)
     let lastSampleTime = performance.now();
 
     const sampleAudio = () => {
@@ -53,6 +80,9 @@ export function WaveformVisualizer({
       if (currentTime - lastSampleTime >= SAMPLE_INTERVAL_MS) {
         lastSampleTime = currentTime;
         lastSampleTimeRef.current = currentTime;
+
+        let localRMS = 0;
+        let remoteRMS = 0;
 
         // Accumulate new sample from local stream
         if (localData) {
@@ -67,8 +97,8 @@ export function WaveformVisualizer({
           }
           localSamplesRef.current.push(sum / localData.dataArray.length);
           // Calculate RMS energy for silence detection
-          const rms = Math.sqrt(sumSquares / localData.dataArray.length);
-          localRMSRef.current.push(rms);
+          localRMS = Math.sqrt(sumSquares / localData.dataArray.length);
+          localRMSRef.current.push(localRMS);
         }
 
         // Accumulate new sample from remote stream
@@ -84,8 +114,16 @@ export function WaveformVisualizer({
           }
           remoteSamplesRef.current.push(sum / remoteData.dataArray.length);
           // Calculate RMS energy for silence detection
-          const rms = Math.sqrt(sumSquares / remoteData.dataArray.length);
-          remoteRMSRef.current.push(rms);
+          remoteRMS = Math.sqrt(sumSquares / remoteData.dataArray.length);
+          remoteRMSRef.current.push(remoteRMS);
+        }
+
+        // Track first voice activity for initial silence calculation
+        if (firstVoiceTimeRef.current === null && callStartTimeRef.current !== null) {
+          const hasVoice = localRMS >= SILENCE_THRESHOLD || remoteRMS >= SILENCE_THRESHOLD;
+          if (hasVoice) {
+            firstVoiceTimeRef.current = currentTime;
+          }
         }
       }
 
@@ -110,11 +148,13 @@ export function WaveformVisualizer({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Set canvas size to match display size
+    // Set canvas size to match display size and capture base width
     const resizeCanvas = () => {
       const rect = container.getBoundingClientRect();
       canvas.height = rect.height * window.devicePixelRatio;
-      // Don't scale here - we'll handle it in the draw loop
+      // Capture the container width once when component mounts or resizes
+      // This width stays constant even when scrollbars appear
+      baseContainerWidthRef.current = container.offsetWidth;
     };
 
     resizeCanvas();
@@ -122,14 +162,16 @@ export function WaveformVisualizer({
 
     // Configuration: 60 seconds should fill approximately the screen width
     const TARGET_SECONDS_PER_SCREEN = 60;
-    const containerWidth = container.getBoundingClientRect().width;
-    const PIXELS_PER_SECOND = containerWidth / TARGET_SECONDS_PER_SCREEN; // ~20 pixels/second for 1200px screen
     const SAMPLE_INTERVAL_MS = 50; // Must match sampling interval
 
     const draw = () => {
-      if (!canvasRef.current || !ctx) return;
+      if (!canvasRef.current || !ctx || !containerRef.current) return;
 
       const height = canvasRef.current.height / window.devicePixelRatio;
+
+      // Use the base container width captured at mount/resize
+      const containerWidth = baseContainerWidthRef.current!;
+      const PIXELS_PER_SECOND = containerWidth / TARGET_SECONDS_PER_SCREEN; // ~20 pixels/second for 1200px screen
 
       // Calculate canvas width based on time duration
       // Each sample represents SAMPLE_INTERVAL_MS milliseconds
@@ -146,11 +188,13 @@ export function WaveformVisualizer({
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
+      // Update canvas drawing buffer size if needed
       if (canvas.width !== scaledWidth) {
         canvas.width = scaledWidth;
-        // Set CSS width to logical size, not scaled size
-        canvas.style.width = `${neededWidth}px`;
       }
+
+      // Always update CSS width to actual pixel width for proper scrolling
+      canvas.style.width = `${neededWidth}px`;
 
       const width = neededWidth;
       const pixelsPerSample = (SAMPLE_INTERVAL_MS / 1000) * PIXELS_PER_SECOND;
@@ -264,6 +308,89 @@ export function WaveformVisualizer({
         }
       }
 
+      // Calculate agent speaking "turns" (including pauses between agent speech)
+      // A turn is from when agent starts speaking until user starts speaking
+      interface SpeakingPeriod {
+        startIndex: number;
+        endIndex: number;
+        durationMs: number;
+      }
+      const agentSpeakingPeriods: SpeakingPeriod[] = [];
+      const MIN_SPEAKING_DURATION_MS = 200; // Minimum duration to count as a turn
+      const MIN_SPEAKING_SAMPLES = Math.ceil(MIN_SPEAKING_DURATION_MS / SAMPLE_INTERVAL_MS);
+
+      for (let i = 0; i < maxSamples; i++) {
+        const remoteRMS = remoteRMSRef.current[i] ?? 0;
+        const localRMS = localRMSRef.current[i] ?? 0;
+        const agentStartsSpeaking = remoteRMS >= SILENCE_THRESHOLD && localRMS < SILENCE_THRESHOLD;
+
+        if (agentStartsSpeaking) {
+          // Track agent's entire turn (speaking + pauses) until user speaks
+          let turnCount = 1;
+          // Look ahead while user is not speaking (agent can speak or be silent)
+          for (let j = i + 1; j < maxSamples; j++) {
+            const remoteRMSNext = remoteRMSRef.current[j] ?? 0;
+            const localRMSNext = localRMSRef.current[j] ?? 0;
+            const userSpeaks = localRMSNext >= SILENCE_THRESHOLD;
+
+            // Continue the turn as long as user doesn't speak
+            if (!userSpeaks) {
+              turnCount++;
+            } else {
+              break;
+            }
+          }
+
+          // If this turn is long enough, record it
+          if (turnCount >= MIN_SPEAKING_SAMPLES) {
+            const durationMs = turnCount * SAMPLE_INTERVAL_MS;
+            agentSpeakingPeriods.push({
+              startIndex: i,
+              endIndex: i + turnCount - 1,
+              durationMs
+            });
+            i += turnCount - 1; // Skip ahead
+          }
+        }
+      }
+
+      // Calculate silence statistics
+      const userToAgentPeriods = silencePeriods.filter(p => p.isUserToAgent);
+
+      // Calculate initial silence (time from call start to first voice)
+      let initialSilence = 0;
+      if (callStartTimeRef.current !== null && firstVoiceTimeRef.current !== null) {
+        initialSilence = firstVoiceTimeRef.current - callStartTimeRef.current;
+      }
+
+      // Calculate avg and max from user→agent transitions (response time analysis)
+      const silenceDurations = userToAgentPeriods.map(p => p.durationMs);
+      const avgSilence = silenceDurations.length > 0
+        ? silenceDurations.reduce((sum, d) => sum + d, 0) / silenceDurations.length
+        : 0;
+      const maxSilence = silenceDurations.length > 0 ? Math.max(...silenceDurations) : 0;
+
+      // Calculate agent speaking statistics
+      const agentTalkDurations = agentSpeakingPeriods.map(p => p.durationMs);
+      const avgAgentTalk = agentTalkDurations.length > 0
+        ? agentTalkDurations.reduce((sum, d) => sum + d, 0) / agentTalkDurations.length
+        : 0;
+      const maxAgentTalk = agentTalkDurations.length > 0 ? Math.max(...agentTalkDurations) : 0;
+
+      // Update stats if we have any data
+      if (userToAgentPeriods.length > 0 || initialSilence > 0 || agentSpeakingPeriods.length > 0) {
+        setSilenceStats({
+          avgSilence,
+          maxSilence,
+          initialSilence,
+          avgAgentTalk,
+          maxAgentTalk
+        });
+      } else {
+        // Clear stats if no data available
+        setSilenceStats(null);
+      }
+
       // Second pass: draw the continuous silence backgrounds
       for (const period of silencePeriods) {
         const startX = period.startIndex * pixelsPerSample;
@@ -324,9 +451,7 @@ export function WaveformVisualizer({
           0,
           height,
           pixelsPerSample,
-          "#3b82f6",
-          "Incoming (Agent)",
-          8 // label y position
+          "#3b82f6"
         );
       }
 
@@ -338,9 +463,7 @@ export function WaveformVisualizer({
           0,
           height,
           pixelsPerSample,
-          "#22c55e",
-          "Outgoing (You)",
-          24 // label y position, below the first
+          "#22c55e"
         );
       }
 
@@ -359,7 +482,7 @@ export function WaveformVisualizer({
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [localData, remoteData, isActive, autoScroll]);
+  }, [isActive, autoScroll]); // Removed localData, remoteData to keep rendering after call ends
 
   const handleClear = () => {
     localSamplesRef.current = [];
@@ -368,13 +491,17 @@ export function WaveformVisualizer({
     remoteRMSRef.current = [];
     scrollOffsetRef.current = 0;
     lastSampleTimeRef.current = 0;
+    callStartTimeRef.current = null;
+    firstVoiceTimeRef.current = null;
+    // Don't reset baseContainerWidthRef - keep using the same viewport width
+    setSilenceStats(null);
     if (containerRef.current) {
       containerRef.current.scrollLeft = 0;
     }
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full w-full">
       {/* Controls */}
       <div className="flex items-center gap-2 px-2 py-1 border-b border-base-300 bg-base-200">
         <label className="flex items-center gap-1 text-xs cursor-pointer">
@@ -410,12 +537,71 @@ export function WaveformVisualizer({
       </div>
 
       {/* Scrollable canvas container */}
-      <div ref={containerRef} className="flex-1 overflow-x-auto overflow-y-hidden">
+      <div
+        ref={containerRef}
+        className="flex-1 w-full max-w-full overflow-x-auto overflow-y-hidden"
+        style={height ? { height: `${height}px` } : undefined}
+      >
         <canvas
           ref={canvasRef}
-          className="block"
-          style={{ height: "80px" }}
+          className="block h-full"
         />
+      </div>
+
+      {/* Statistics display */}
+      <div className="px-2 py-2 border-t border-base-300 bg-base-200">
+        <div className="grid grid-cols-5 gap-4 text-xs">
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">Initial Silence</span>
+            <span className="text-base-content font-mono">
+              {silenceStats && silenceStats.initialSilence > 0
+                ? silenceStats.initialSilence >= 1000
+                  ? `${(silenceStats.initialSilence / 1000).toFixed(2)}s`
+                  : `${silenceStats.initialSilence.toFixed(0)}ms`
+                : '-'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">Avg Response Time</span>
+            <span className="text-base-content font-mono">
+              {silenceStats && silenceStats.avgSilence > 0
+                ? silenceStats.avgSilence >= 1000
+                  ? `${(silenceStats.avgSilence / 1000).toFixed(2)}s`
+                  : `${silenceStats.avgSilence.toFixed(0)}ms`
+                : '-'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">Max Response Time</span>
+            <span className="text-base-content font-mono">
+              {silenceStats && silenceStats.maxSilence > 0
+                ? silenceStats.maxSilence >= 1000
+                  ? `${(silenceStats.maxSilence / 1000).toFixed(2)}s`
+                  : `${silenceStats.maxSilence.toFixed(0)}ms`
+                : '-'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">Avg Agent Talk</span>
+            <span className="text-base-content font-mono">
+              {silenceStats && silenceStats.avgAgentTalk > 0
+                ? silenceStats.avgAgentTalk >= 1000
+                  ? `${(silenceStats.avgAgentTalk / 1000).toFixed(2)}s`
+                  : `${silenceStats.avgAgentTalk.toFixed(0)}ms`
+                : '-'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">Max Agent Talk</span>
+            <span className="text-base-content font-mono">
+              {silenceStats && silenceStats.maxAgentTalk > 0
+                ? silenceStats.maxAgentTalk >= 1000
+                  ? `${(silenceStats.maxAgentTalk / 1000).toFixed(2)}s`
+                  : `${silenceStats.maxAgentTalk.toFixed(0)}ms`
+                : '-'}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -427,9 +613,7 @@ function drawOverlaidWaveform(
   offsetY: number,
   height: number,
   pixelsPerSample: number,
-  color: string,
-  label: string,
-  labelY: number
+  color: string
 ) {
   const centerY = offsetY + height / 2;
 
@@ -453,11 +637,6 @@ function drawOverlaidWaveform(
 
   ctx.stroke();
   ctx.globalAlpha = 1.0; // Reset alpha
-
-  // Draw label
-  ctx.fillStyle = color;
-  ctx.font = "10px monospace";
-  ctx.fillText(label, 8, labelY);
 }
 
 function drawPlaceholder(

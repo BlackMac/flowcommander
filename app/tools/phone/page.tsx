@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { SipPhone } from "@/components/builder/SipPhone";
+import { SipPhone, type JitterStats } from "@/components/builder/SipPhone";
 import { WaveformVisualizer } from "@/components/builder/WaveformVisualizer";
 
 type CallState = "idle" | "connecting" | "ringing" | "active" | "ended" | "error";
@@ -11,10 +11,15 @@ export default function PhoneToolPage() {
   const [remoteAudioStream, setRemoteAudioStream] = useState<MediaStream | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const [phoneNumber, setPhoneNumber] = useState<string>("+491579-2380294");
+  const [jitterStats, setJitterStats] = useState<JitterStats | null>(null);
 
   const handleAudioStreamsChange = useCallback((local: MediaStream | null, remote: MediaStream | null) => {
     setLocalAudioStream(local);
     setRemoteAudioStream(remote);
+  }, []);
+
+  const handleJitterUpdate = useCallback((jitter: JitterStats | null) => {
+    setJitterStats(jitter);
   }, []);
 
   return (
@@ -97,6 +102,7 @@ export default function PhoneToolPage() {
                     projectName="Phone Testing Tool"
                     onAudioStreamsChange={handleAudioStreamsChange}
                     onCallStateChange={setCallState}
+                    onJitterUpdate={handleJitterUpdate}
                     disabled={false}
                   />
                 </div>
@@ -119,6 +125,7 @@ export default function PhoneToolPage() {
                   <WaveformVisualizer
                     localStream={localAudioStream}
                     remoteStream={remoteAudioStream}
+                    jitterStats={jitterStats}
                     isActive={true}
                   />
                 </div>

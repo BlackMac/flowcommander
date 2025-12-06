@@ -2,10 +2,12 @@
 
 import { useRef, useEffect, useState } from "react";
 import { useAudioStreams } from "./hooks/useAudioStreams";
+import type { JitterStats } from "./SipPhone";
 
 interface WaveformVisualizerProps {
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  jitterStats?: JitterStats | null;
   isActive: boolean;
   height?: number; // Height in pixels (default: 80)
 }
@@ -13,11 +15,14 @@ interface WaveformVisualizerProps {
 export function WaveformVisualizer({
   localStream,
   remoteStream,
+  jitterStats = null,
   isActive,
   height = 80,
 }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const jitterCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const jitterContainerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
   const { localData, remoteData } = useAudioStreams(localStream, remoteStream);
 
@@ -26,8 +31,16 @@ export function WaveformVisualizer({
   const remoteSamplesRef = useRef<number[]>([]);
   const localRMSRef = useRef<number[]>([]); // RMS energy for silence detection
   const remoteRMSRef = useRef<number[]>([]); // RMS energy for silence detection
+  const localJitterRef = useRef<number[]>([]); // WebRTC jitter values (in milliseconds)
+  const remoteJitterRef = useRef<number[]>([]); // WebRTC jitter values (in milliseconds)
+  const localPacketLossRef = useRef<number[]>([]); // WebRTC packet loss percentage
+  const remotePacketLossRef = useRef<number[]>([]); // WebRTC packet loss percentage
   const scrollOffsetRef = useRef<number>(0);
   const lastSampleTimeRef = useRef<number>(0);
+  const lastJitterTimestampRef = useRef<number>(0);
+
+  const [currentCodec, setCurrentCodec] = useState<string>('');
+  const [currentMOS, setCurrentMOS] = useState<number | null>(null);
 
   const [autoScroll, setAutoScroll] = useState(true);
   const [silenceStats, setSilenceStats] = useState<{
@@ -55,6 +68,10 @@ export function WaveformVisualizer({
       remoteSamplesRef.current = [];
       localRMSRef.current = [];
       remoteRMSRef.current = [];
+      localJitterRef.current = [];
+      remoteJitterRef.current = [];
+      localPacketLossRef.current = [];
+      remotePacketLossRef.current = [];
       scrollOffsetRef.current = 0;
       lastSampleTimeRef.current = 0;
       callStartTimeRef.current = performance.now();
@@ -99,6 +116,7 @@ export function WaveformVisualizer({
           // Calculate RMS energy for silence detection
           localRMS = Math.sqrt(sumSquares / localData.dataArray.length);
           localRMSRef.current.push(localRMS);
+
         }
 
         // Accumulate new sample from remote stream
@@ -138,6 +156,47 @@ export function WaveformVisualizer({
       }
     };
   }, [localData, remoteData]);
+
+  // Separate effect for processing WebRTC jitter stats
+  useEffect(() => {
+    if (!jitterStats) return;
+
+    // Only process if we have a new jitter update (based on timestamp)
+    if (jitterStats.timestamp === lastJitterTimestampRef.current) return;
+    lastJitterTimestampRef.current = jitterStats.timestamp;
+
+    // Update codec and MOS display
+    setCurrentCodec(jitterStats.codec);
+    setCurrentMOS(jitterStats.mos);
+
+    // Convert WebRTC jitter from seconds to milliseconds for visualization
+    // WebRTC jitter is typically a very small number (< 0.1 seconds)
+    const localJitterMs = jitterStats.localJitter * 1000;
+    const remoteJitterMs = jitterStats.remoteJitter * 1000;
+
+    // Append the jitter and packet loss values to match the timing of audio samples
+    // Jitter comes in at ~100ms intervals, we sample audio at 50ms
+    // So we'll add 2 copies of each value to align with audio samples
+    localJitterRef.current.push(localJitterMs, localJitterMs);
+    remoteJitterRef.current.push(remoteJitterMs, remoteJitterMs);
+    localPacketLossRef.current.push(jitterStats.localPacketLoss, jitterStats.localPacketLoss);
+    remotePacketLossRef.current.push(jitterStats.remotePacketLoss, jitterStats.remotePacketLoss);
+
+    // Keep arrays in sync with audio sample arrays
+    const maxSamples = Math.max(localSamplesRef.current.length, remoteSamplesRef.current.length);
+    while (localJitterRef.current.length > maxSamples) {
+      localJitterRef.current.shift();
+    }
+    while (remoteJitterRef.current.length > maxSamples) {
+      remoteJitterRef.current.shift();
+    }
+    while (localPacketLossRef.current.length > maxSamples) {
+      localPacketLossRef.current.shift();
+    }
+    while (remotePacketLossRef.current.length > maxSamples) {
+      remotePacketLossRef.current.shift();
+    }
+  }, [jitterStats]);
 
   // Separate effect for rendering - only runs when tab is active
   useEffect(() => {
@@ -484,19 +543,215 @@ export function WaveformVisualizer({
     };
   }, [isActive, autoScroll]); // Removed localData, remoteData to keep rendering after call ends
 
+  // Separate effect for rendering jitter graph
+  useEffect(() => {
+    if (!isActive || !jitterCanvasRef.current || !jitterContainerRef.current) return;
+
+    const jitterCanvas = jitterCanvasRef.current;
+    const jitterContainer = jitterContainerRef.current;
+    const jitterCtx = jitterCanvas.getContext("2d");
+    if (!jitterCtx) return;
+
+    const resizeJitterCanvas = () => {
+      const rect = jitterContainer.getBoundingClientRect();
+      jitterCanvas.height = rect.height * window.devicePixelRatio;
+    };
+
+    resizeJitterCanvas();
+    window.addEventListener("resize", resizeJitterCanvas);
+
+    const SAMPLE_INTERVAL_MS = 50;
+    const TARGET_SECONDS_PER_SCREEN = 60;
+    const jitterAnimationRef = { current: null as number | null };
+
+    const drawJitter = () => {
+      if (!jitterCanvasRef.current || !jitterCtx || !jitterContainerRef.current) return;
+
+      const height = jitterCanvasRef.current.height / window.devicePixelRatio;
+      const containerWidth = baseContainerWidthRef.current!;
+      const PIXELS_PER_SECOND = containerWidth / TARGET_SECONDS_PER_SCREEN;
+
+      const maxSamples = Math.max(localJitterRef.current.length, remoteJitterRef.current.length);
+      const durationSeconds = (maxSamples * SAMPLE_INTERVAL_MS) / 1000;
+      const neededWidth = Math.max(durationSeconds * PIXELS_PER_SECOND, containerWidth);
+      const scaledWidth = neededWidth * window.devicePixelRatio;
+
+      jitterCtx.setTransform(1, 0, 0, 1, 0, 0);
+      jitterCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+      if (jitterCanvas.width !== scaledWidth) {
+        jitterCanvas.width = scaledWidth;
+      }
+
+      jitterCanvas.style.width = `${neededWidth}px`;
+
+      const pixelsPerSample = (SAMPLE_INTERVAL_MS / 1000) * PIXELS_PER_SECOND;
+
+      // Auto-scroll jitter to match main waveform
+      if (autoScroll) {
+        const scrollPos = Math.max(0, neededWidth - containerWidth);
+        jitterContainer.scrollLeft = scrollPos;
+      }
+
+      // Clear with dark background
+      jitterCtx.fillStyle = "#1e1e1e";
+      jitterCtx.fillRect(0, 0, neededWidth, height);
+
+      // Define jitter quality thresholds (in milliseconds)
+      // WebRTC jitter values: < 20ms = excellent, 20-50ms = acceptable, > 50ms = poor
+      const GOOD_THRESHOLD = 20.0; // Low jitter = good quality (green)
+      const MODERATE_THRESHOLD = 50.0; // Medium jitter = moderate quality (yellow)
+      // Above MODERATE_THRESHOLD = poor quality (red)
+
+      // Draw local jitter (user audio quality) - top half
+      if (localJitterRef.current.length > 0) {
+        const maxJitter = Math.max(...localJitterRef.current, ...remoteJitterRef.current, 10);
+
+        jitterCtx.lineWidth = 1.5;
+        jitterCtx.globalAlpha = 0.7;
+
+        for (let i = 0; i < localJitterRef.current.length; i++) {
+          const x = i * pixelsPerSample;
+          const jitterValue = localJitterRef.current[i];
+          const normalizedJitter = Math.min(jitterValue / maxJitter, 1);
+          const y = height / 2 - (normalizedJitter * (height / 2) * 0.8);
+
+          // Determine color based on quality
+          let color = "#22c55e"; // Green (good)
+          if (jitterValue >= MODERATE_THRESHOLD) {
+            color = "#dc2626"; // Red (poor)
+          } else if (jitterValue >= GOOD_THRESHOLD) {
+            color = "#eab308"; // Yellow (moderate)
+          }
+
+          jitterCtx.strokeStyle = color;
+          jitterCtx.fillStyle = color;
+          jitterCtx.fillRect(x, y, Math.max(pixelsPerSample, 2), 2);
+        }
+        jitterCtx.globalAlpha = 1.0;
+      }
+
+      // Draw remote jitter (agent audio quality) - bottom half
+      if (remoteJitterRef.current.length > 0) {
+        const maxJitter = Math.max(...localJitterRef.current, ...remoteJitterRef.current, 10);
+
+        jitterCtx.lineWidth = 1.5;
+        jitterCtx.globalAlpha = 0.7;
+
+        for (let i = 0; i < remoteJitterRef.current.length; i++) {
+          const x = i * pixelsPerSample;
+          const jitterValue = remoteJitterRef.current[i];
+          const normalizedJitter = Math.min(jitterValue / maxJitter, 1);
+          const y = height / 2 + (normalizedJitter * (height / 2) * 0.8);
+
+          // Determine color based on quality
+          let color = "#22c55e"; // Green (good)
+          if (jitterValue >= MODERATE_THRESHOLD) {
+            color = "#dc2626"; // Red (poor)
+          } else if (jitterValue >= GOOD_THRESHOLD) {
+            color = "#eab308"; // Yellow (moderate)
+          }
+
+          jitterCtx.strokeStyle = color;
+          jitterCtx.fillStyle = color;
+          jitterCtx.fillRect(x, height / 2, Math.max(pixelsPerSample, 2), y - height / 2);
+        }
+        jitterCtx.globalAlpha = 1.0;
+      }
+
+      // Draw packet loss markers (red spikes)
+      // Local packet loss (top half)
+      if (localPacketLossRef.current.length > 0) {
+        jitterCtx.strokeStyle = "#ef4444"; // Bright red
+        jitterCtx.lineWidth = 2;
+        jitterCtx.globalAlpha = 0.9;
+
+        for (let i = 0; i < localPacketLossRef.current.length; i++) {
+          const packetLoss = localPacketLossRef.current[i];
+          if (packetLoss > 0.1) { // Only show if > 0.1% loss
+            const x = i * pixelsPerSample;
+            const spikeHeight = Math.min(packetLoss * 2, height / 4); // Scale spike based on loss %
+
+            jitterCtx.beginPath();
+            jitterCtx.moveTo(x, height / 2);
+            jitterCtx.lineTo(x, height / 2 - spikeHeight);
+            jitterCtx.stroke();
+          }
+        }
+        jitterCtx.globalAlpha = 1.0;
+      }
+
+      // Remote packet loss (bottom half)
+      if (remotePacketLossRef.current.length > 0) {
+        jitterCtx.strokeStyle = "#ef4444"; // Bright red
+        jitterCtx.lineWidth = 2;
+        jitterCtx.globalAlpha = 0.9;
+
+        for (let i = 0; i < remotePacketLossRef.current.length; i++) {
+          const packetLoss = remotePacketLossRef.current[i];
+          if (packetLoss > 0.1) { // Only show if > 0.1% loss
+            const x = i * pixelsPerSample;
+            const spikeHeight = Math.min(packetLoss * 2, height / 4); // Scale spike based on loss %
+
+            jitterCtx.beginPath();
+            jitterCtx.moveTo(x, height / 2);
+            jitterCtx.lineTo(x, height / 2 + spikeHeight);
+            jitterCtx.stroke();
+          }
+        }
+        jitterCtx.globalAlpha = 1.0;
+      }
+
+      // Draw center line
+      jitterCtx.strokeStyle = "#404040";
+      jitterCtx.lineWidth = 1;
+      jitterCtx.beginPath();
+      jitterCtx.moveTo(0, height / 2);
+      jitterCtx.lineTo(neededWidth, height / 2);
+      jitterCtx.stroke();
+
+      if (localJitterRef.current.length === 0 && remoteJitterRef.current.length === 0) {
+        jitterCtx.fillStyle = "#808080";
+        jitterCtx.font = "10px monospace";
+        jitterCtx.textAlign = "center";
+        jitterCtx.fillText("No quality data yet...", containerWidth / 2, height / 2);
+      }
+
+      jitterAnimationRef.current = requestAnimationFrame(drawJitter);
+    };
+
+    drawJitter();
+
+    return () => {
+      window.removeEventListener("resize", resizeJitterCanvas);
+      if (jitterAnimationRef.current) {
+        cancelAnimationFrame(jitterAnimationRef.current);
+      }
+    };
+  }, [isActive, autoScroll]);
+
   const handleClear = () => {
     localSamplesRef.current = [];
     remoteSamplesRef.current = [];
     localRMSRef.current = [];
     remoteRMSRef.current = [];
+    localJitterRef.current = [];
+    remoteJitterRef.current = [];
+    localPacketLossRef.current = [];
+    remotePacketLossRef.current = [];
     scrollOffsetRef.current = 0;
     lastSampleTimeRef.current = 0;
     callStartTimeRef.current = null;
     firstVoiceTimeRef.current = null;
     // Don't reset baseContainerWidthRef - keep using the same viewport width
     setSilenceStats(null);
+    setCurrentCodec('');
+    setCurrentMOS(null);
     if (containerRef.current) {
       containerRef.current.scrollLeft = 0;
+    }
+    if (jitterContainerRef.current) {
+      jitterContainerRef.current.scrollLeft = 0;
     }
   };
 
@@ -548,9 +803,26 @@ export function WaveformVisualizer({
         />
       </div>
 
+      {/* Jitter graph */}
+      <div className="border-t border-base-300">
+        <div className="px-2 py-1 bg-base-200 border-b border-base-300">
+          <span className="text-xs font-medium text-base-content/60">Audio Quality (Jitter + Packet Loss)</span>
+        </div>
+        <div
+          ref={jitterContainerRef}
+          className="w-full max-w-full overflow-x-auto overflow-y-hidden bg-base-200"
+          style={{ height: '60px' }}
+        >
+          <canvas
+            ref={jitterCanvasRef}
+            className="block h-full"
+          />
+        </div>
+      </div>
+
       {/* Statistics display */}
       <div className="px-2 py-2 border-t border-base-300 bg-base-200">
-        <div className="grid grid-cols-5 gap-4 text-xs">
+        <div className="grid grid-cols-7 gap-4 text-xs">
           <div className="flex flex-col">
             <span className="text-base-content/50 font-medium mb-1">Initial Silence</span>
             <span className="text-base-content font-mono">
@@ -562,7 +834,7 @@ export function WaveformVisualizer({
             </span>
           </div>
           <div className="flex flex-col">
-            <span className="text-base-content/50 font-medium mb-1">Avg Response Time</span>
+            <span className="text-base-content/50 font-medium mb-1">Avg Resp.</span>
             <span className="text-base-content font-mono">
               {silenceStats && silenceStats.avgSilence > 0
                 ? silenceStats.avgSilence >= 1000
@@ -572,7 +844,7 @@ export function WaveformVisualizer({
             </span>
           </div>
           <div className="flex flex-col">
-            <span className="text-base-content/50 font-medium mb-1">Max Response Time</span>
+            <span className="text-base-content/50 font-medium mb-1">Max Resp.</span>
             <span className="text-base-content font-mono">
               {silenceStats && silenceStats.maxSilence > 0
                 ? silenceStats.maxSilence >= 1000
@@ -582,7 +854,7 @@ export function WaveformVisualizer({
             </span>
           </div>
           <div className="flex flex-col">
-            <span className="text-base-content/50 font-medium mb-1">Avg Agent Talk</span>
+            <span className="text-base-content/50 font-medium mb-1">Avg Agent</span>
             <span className="text-base-content font-mono">
               {silenceStats && silenceStats.avgAgentTalk > 0
                 ? silenceStats.avgAgentTalk >= 1000
@@ -592,13 +864,31 @@ export function WaveformVisualizer({
             </span>
           </div>
           <div className="flex flex-col">
-            <span className="text-base-content/50 font-medium mb-1">Max Agent Talk</span>
+            <span className="text-base-content/50 font-medium mb-1">Max Agent</span>
             <span className="text-base-content font-mono">
               {silenceStats && silenceStats.maxAgentTalk > 0
                 ? silenceStats.maxAgentTalk >= 1000
                   ? `${(silenceStats.maxAgentTalk / 1000).toFixed(2)}s`
                   : `${silenceStats.maxAgentTalk.toFixed(0)}ms`
                 : '-'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">MOS Score</span>
+            <span className={`text-base-content font-mono ${
+              currentMOS !== null
+                ? currentMOS >= 4 ? 'text-success'
+                  : currentMOS >= 3 ? 'text-warning'
+                  : 'text-error'
+                : ''
+            }`}>
+              {currentMOS !== null ? currentMOS.toFixed(2) : '-'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-base-content/50 font-medium mb-1">Codec</span>
+            <span className="text-base-content font-mono uppercase">
+              {currentCodec || '-'}
             </span>
           </div>
         </div>

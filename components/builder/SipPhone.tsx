@@ -10,16 +10,27 @@ interface AudioDevice {
   label: string;
 }
 
+export interface JitterStats {
+  localJitter: number; // Outbound jitter in seconds
+  remoteJitter: number; // Inbound jitter in seconds
+  localPacketLoss: number; // Outbound packet loss percentage (0-100)
+  remotePacketLoss: number; // Inbound packet loss percentage (0-100)
+  codec: string; // Audio codec in use (e.g., "opus", "PCMU")
+  mos: number | null; // Mean Opinion Score (1-5, null if unavailable)
+  timestamp: number; // Performance.now() timestamp
+}
+
 interface SipPhoneProps {
   phoneNumber: string; // The number to call (display format like "02041-34873-10")
   webhookUrl: string | null; // Webhook URL (not used anymore, kept for compatibility)
   projectName: string; // Project name (not used anymore, kept for compatibility)
   onCallStateChange?: (state: CallState) => void;
   onAudioStreamsChange?: (local: MediaStream | null, remote: MediaStream | null) => void;
+  onJitterUpdate?: (jitter: JitterStats | null) => void;
   disabled?: boolean; // If true, disable calling (e.g., when code has undeployed changes)
 }
 
-export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChange, onAudioStreamsChange, disabled = false }: SipPhoneProps) {
+export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChange, onAudioStreamsChange, onJitterUpdate, disabled = false }: SipPhoneProps) {
   const [callState, setCallState] = useState<CallState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [hangupReason, setHangupReason] = useState<string | null>(null);
@@ -40,6 +51,7 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
   const ringbackContextRef = useRef<AudioContext | null>(null);
   const ringbackIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const warmupStreamRef = useRef<MediaStream | null>(null);
+  const jitterStatsIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update parent when call state changes
   useEffect(() => {
@@ -106,6 +118,127 @@ export function SipPhone({ phoneNumber, webhookUrl, projectName, onCallStateChan
       }
     };
   }, [callState]);
+
+  // Poll WebRTC stats for jitter values when call is active
+  useEffect(() => {
+    if (callState === "active" && userAgentRef.current && onJitterUpdate) {
+      const pollJitterStats = async () => {
+        try {
+          // Access the session's peer connection
+          const session = userAgentRef.current?.session;
+          if (!session) return;
+
+          const peerConnection = session.sessionDescriptionHandler?.peerConnection;
+          if (!peerConnection) return;
+
+          // Get RTC stats
+          const stats = await peerConnection.getStats();
+          let localJitter = 0;
+          let remoteJitter = 0;
+          let localPacketLoss = 0;
+          let remotePacketLoss = 0;
+          let codec = 'unknown';
+          let mos: number | null = null;
+
+          // Temporary variables for MOS calculation
+          let inboundPacketsLost = 0;
+          let inboundPacketsReceived = 0;
+          let inboundJitter = 0;
+
+          stats.forEach((report: any) => {
+            // Inbound RTP stream (incoming audio from remote - agent)
+            if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+              remoteJitter = report.jitter || 0;
+              inboundJitter = remoteJitter;
+              inboundPacketsLost = report.packetsLost || 0;
+              inboundPacketsReceived = report.packetsReceived || 0;
+
+              // Calculate packet loss percentage
+              const totalPackets = inboundPacketsLost + inboundPacketsReceived;
+              if (totalPackets > 0) {
+                remotePacketLoss = (inboundPacketsLost / totalPackets) * 100;
+              }
+            }
+            // Remote inbound (what the remote peer sees for our outbound)
+            if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
+              localJitter = report.jitter || 0;
+              const packetsLost = report.packetsLost || 0;
+              const totalSent = report.packetsSent || 0;
+
+              if (totalSent > 0) {
+                localPacketLoss = (packetsLost / totalSent) * 100;
+              }
+            }
+            // Codec information
+            if (report.type === 'codec' && report.mimeType?.includes('audio')) {
+              codec = report.mimeType.split('/')[1] || 'unknown';
+            }
+          });
+
+          // Calculate MOS score (simplified E-model approximation)
+          // MOS ranges from 1 (bad) to 5 (excellent)
+          if (inboundPacketsReceived > 100) { // Need some packets to calculate
+            const effectiveLatency = 0; // We don't have RTT in these stats easily
+            const jitterMs = inboundJitter * 1000;
+
+            // Simplified MOS calculation based on packet loss and jitter
+            // R-factor calculation (simplified)
+            let R = 93.2; // Starting R-factor for ideal conditions
+
+            // Degrade based on packet loss (exponential impact)
+            R -= (remotePacketLoss * 2.5);
+
+            // Degrade based on jitter
+            R -= (jitterMs / 10);
+
+            // Convert R-factor to MOS (simplified mapping)
+            if (R < 0) R = 0;
+            if (R > 100) R = 100;
+
+            if (R < 60) mos = 1;
+            else if (R < 70) mos = 2;
+            else if (R < 80) mos = 3;
+            else if (R < 90) mos = 4;
+            else mos = 5;
+
+            // More precise MOS calculation
+            mos = 1 + (0.035 * R) + (R * (R - 60) * (100 - R) * 0.000007);
+            mos = Math.max(1, Math.min(5, mos)); // Clamp between 1-5
+          }
+
+          onJitterUpdate({
+            localJitter,
+            remoteJitter,
+            localPacketLoss,
+            remotePacketLoss,
+            codec,
+            mos,
+            timestamp: performance.now(),
+          });
+        } catch (error) {
+          console.error('[SipPhone] Failed to get jitter stats:', error);
+        }
+      };
+
+      // Poll every 100ms for smooth jitter visualization
+      pollJitterStats();
+      jitterStatsIntervalRef.current = setInterval(pollJitterStats, 100);
+    } else {
+      // Clear jitter stats when call ends
+      if (jitterStatsIntervalRef.current) {
+        clearInterval(jitterStatsIntervalRef.current);
+        jitterStatsIntervalRef.current = null;
+      }
+      onJitterUpdate?.(null);
+    }
+
+    return () => {
+      if (jitterStatsIntervalRef.current) {
+        clearInterval(jitterStatsIntervalRef.current);
+        jitterStatsIntervalRef.current = null;
+      }
+    };
+  }, [callState, onJitterUpdate]);
 
   // Check if user is logged in via sipgate and can make calls
   useEffect(() => {
